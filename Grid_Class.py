@@ -2149,9 +2149,15 @@ class GridPG:
 
 
 
-    def get_elements(self,area_id):
+    def get_elements(self,area_id, elementCode = 3):
         """
+        Assign element codes to all the elements within the area defined as 'area_id'
         
+        area_id - the id (in the postgis table) of the area where element code changes are required
+        elementCode - the element code to assign to the elements within the area
+        
+        NOTE:
+        	elementCode = 2 is protected - DO NOT USE
         
         
         """
@@ -2189,7 +2195,7 @@ class GridPG:
                 r_elements = self.cur.fetchall()
             	
             	for el in r_elements:
-            		codes[int(el[0])-1] = '2'
+            		codes[int(el[0])-1] = elementCode
                 
         
         else:
