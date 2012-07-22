@@ -150,7 +150,7 @@ def main():
 
 	# create a spline interpolator 
 	#spl = scipy.interpolate.RectBivariateSpline(x,y,z,kx = 2, ky = 2) 
-	spl = scipy.interpolate.RectBivariateSpline(x,y,z,kx = 2, ky = 2) 
+	spl = scipy.interpolate.RectBivariateSpline(x,y,z,kx = 1, ky = 1) 
 
 	#f = scipy.interpolate.interp2d(x,y,z, kind='linear') 
 	
@@ -185,18 +185,29 @@ def main():
 			#find the depth of the nearest neighbour
 			zNN = float(tuple_of_floats[0])
 			
+			#set nearest neighbour on grid to value
+			#points[n][2] = zNN*z_scale
+			#i += 1
 			
-			if zNN != 0:	#interpolate as long as the nearest neighbour is not NoDATA
-				#new interpolation method uses a spline fit method
-				zInterp = spl(P,L)[0][0]
-				#zInterp = f(P,L)[0][0]
-				#print zInterp
-				#if zInterp < 0.0:
-				points[n][2] = zInterp*z_scale
-				i += 1
+			#if zNN != 0:	#interpolate as long as the nearest neighbour is not NoDATA
+			#new interpolation method uses a spline fit method
+			zInterp = spl(P,L)[0][0]
+			#zInterp = f(P,L)[0][0]
+			#print zInterp
+			#if zInterp < 0.0:
+			points[n][2] = zInterp*z_scale
+			i += 1
+			
+		'''
+
 		#If outside - set the point elevation to 0
 		else:
 			points[n][2] = 0.0
+		
+		'''
+		#If outside - Do nothing
+		#else:
+			
 		n +=1
 
 
