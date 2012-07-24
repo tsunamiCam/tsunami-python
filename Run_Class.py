@@ -47,13 +47,13 @@ class RunClass:
         self.grid_filename = self.grid.grid_filename
         self.buildings_dbname = grid.buildings_dbname
         print run_dir+self.run_filename
-        self.run_nc = RunNC(run_dir+self.run_filename, self.grid.grid_dir+self.grid.grid_filename,
+        self.run_nc = RunNC(run_dir+"/"+self.run_filename, self.grid.grid_dir+"/"+self.grid.grid_filename,
                             run_id, name, description,grid.grid_dbname, grid.epsg, grid.buildings_dbname,grid.user)      
         
         self.ricom = Ricom(run_dir)
         self.ricom.title = description
-        self.ricom.gridfilename = self.grid.grid_dir+self.grid.grid_filename        
-        self.ricom.run_filename = self.run_dir + self.run_filename  
+        self.ricom.gridfilename = self.grid.grid_dir+"/"+self.grid.grid_filename        
+        self.ricom.run_filename = self.run_dir + "/" + self.run_filename  
         self.ricom.nitn = number_of_iterations
         self.ricom.delt = delta_time
         self.ricom.elev = sea_level_offset
@@ -83,15 +83,17 @@ class RunClass:
         
         #sel.grid.grid_nc.close()
 
-        self.write_rcm(self.run_dir + "tsunami.rcm")
-        self.ricom.write_fault_file(self.run_dir + "fault.param")
+        self.write_rcm(self.run_dir + "/tsunami.rcm")
+        #self.write_rcm("tsunami.rcm")
+        self.ricom.write_fault_file(self.run_dir + "/fault.param")
         self.grid.add_run(self.run_id, self.name, self.description,
                           run_filename = self.run_filename,grid_filename = self.grid_filename)
         
         if (self.courantCheck == 1):
         	ricomLIB = cdll.LoadLibrary("/opt/local/bin/PhD/Ricom/ricom11.5.9_nc_dcCrcheck.dylib")
         else:
-        	ricomLIB = cdll.LoadLibrary("/opt/local/bin/PhD/Ricom/ricom11.5.9_nc.dylib") 
+        	ricomLIB = cdll.LoadLibrary("/opt/local/bin/PhD/Ricom/ricom12.1.x.nc.omp.dylib") 
+        	#ricomLIB = cdll.LoadLibrary("/opt/local/bin/PhD/Ricom/ricom11.5.9_nc.dylib") 
         
         self.run_nc.close()
         
@@ -1463,7 +1465,7 @@ class Ricom:
             for f in self.friction.fricTypeList:
                 outfile.write("%s   %s   %s   %s   %s   %s   %s   %s\n" % (f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]))  
         elif self.friction.ntype < 0:      #write friction types in external file
-            self.friction.write_friction_file(self.run_dir + self.frictionFile)
+            self.friction.write_friction_file(self.run_dir + "/" + self.frictionFile)
             outfile.write(self.frictionFile + "\n")
         #------------------------------------------------------------------
 
