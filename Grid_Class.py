@@ -1007,7 +1007,6 @@ class GridPG:
             try:
                 curTEMP.execute("SELECT pkey, id, ST_Transform(geom,%s) FROM buildings;" % (epsgOUT))
             except Exception, e:
-            	print "WHAT THE FUCK!!!!!"
                 print "ERROR: buildings table not available in \"%s\"" % buildings_dbname 
                 return -1
             else:            
@@ -1029,7 +1028,8 @@ class GridPG:
             try:
                 curTEMP.execute("SELECT pkey, id, ST_Transform(geom,%s), name, comment FROM areas;" % (epsgOUT))
             except Exception, e:
-                print "ERROR: areas table not available in \"%s\"" % buildings_dbname
+            	print e
+                print "***ERROR: areas table not available in \"%s\"" % buildings_dbname
                 return -1
             else:            
                 areas = curTEMP.fetchall()            
@@ -1057,7 +1057,7 @@ class GridPG:
                 sql = ""
                 #ST_GeomFromText('%s',%s)
                 for b in areas:
-                    sql = sql + "INSERT INTO ines (pkey, id, geom, name, comment) \
+                    sql = sql + "INSERT INTO lines (pkey, id, geom, name, comment) \
                                   VALUES (%s,%s,ST_Geometry('%s'),'%s','%s');" % (b[0],b[1],b[2],b[3],b[4])
                 
                 if(sql != ""):
@@ -2149,68 +2149,74 @@ class GridPG:
 
 
 
-    def get_elements(self,area_id, elementCode = 3):
+    def get_elements_in_buildings(self,area_id = 0):
         """
-        Assign element codes to all the elements within the area defined as 'area_id'
+        Get all the elements corresponding to the buildings that are with the given area polygon.
         
-        area_id - the id (in the postgis table) of the area where element code changes are required
-        elementCode - the element code to assign to the elements within the area
-        
-        NOTE:
-        	elementCode = 2 is protected - DO NOT USE
-        
+        area_id - the id (in the postgis table) of the area that the buildings of interest are inside
+
         
         """
         
         
-        outfile = open('elements.el',"w")
-        a = self.get_area_by_id(area_id)        #get the area as a text object
-        if (a != ""):                           #check if a VALID area geometry has been found in areas table       
-
-
-			#SELECT all the elements in the domain
-            self.cur.execute("SELECT id, node_ids, code FROM elements;")
-            elements = self.cur.fetchall()
+        elements = []
+        
+        if area_id == 0:
+        	#search the entire domain
+			#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
+			self.cur.execute("SELECT e.id FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) AND ST_Contains(b.geom,e.geom) ORDER BY e.id;" )
+			r_elements = self.cur.fetchall()
 			
-			#SELECT all the buildings that are inside the area polygon
-            self.cur.execute("SELECT b.id, ST_AsText(b.geom) FROM buildings AS b WHERE ST_Contains(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" % (a,self.epsg))
-            buildings = self.cur.fetchall() 
-            
-            codes = []
-            for ele in elements:
-            	codes.append(int(ele[2]))
-        		
+			for el in r_elements:
+				elements.append(el[0])
+				        	
         	
-            n = 0
-
-            
-            for b in buildings:
-            	id = int(b[0])
-                p = self._offset_polygon2_(b[1],-0.1)
-                
-                #SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
-                self.cur.execute("SELECT e.id FROM elements AS e \
-                                WHERE ST_Intersects(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;" \
-                                % (p, self.epsg))
-                r_elements = self.cur.fetchall()
-            	
-            	for el in r_elements:
-            		codes[int(el[0])-1] = elementCode
-                
-        
         else:
-        	print "ERROR: Invalid area id selected"
-        	return -1
+			a = self.get_area_by_id(area_id)        #get the area as a text object
+			if (a != ""):                           #check if a VALID area geometry has been found in areas table       
+	
+				#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
+				self.cur.execute("SELECT e.id FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) AND ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;"  % (a,self.epsg) )
+				r_elements = self.cur.fetchall()
+				
+				for el in r_elements:
+					elements.append(el[0])
+					
+				'''
+				self.cur.execute("SELECT e.id FROM elements AS e, buildings AS b WHERE ST_Intersects(b.geom,e.geom) ORDER BY e.id;")
+				r_elements = self.cur.fetchall()
+				'''
+					
+			else:
+				print "ERROR: Invalid area id selected"
+				return elements
         	
-        print elements[0]
-        i =  0
-        for el in elements:
-        	outfile.write('%s %s %s 0   %s\n' % (str(el[1][0]).ljust(8),
-        										str(el[1][1]).ljust(8),str(el[1][2]).ljust(8),str(codes[i])))
-        	i+=1
-        	
-        outfile.close()
-
+        return elements
+    
+    def get_elements_in_area(self,area_id = 0):
+		"""
+		Get all the elements inside a given area.
+		
+		area_id - the id (in the postgis table) of the area
+		
+		
+		"""
+		elements = []        
+		a = self.get_area_by_id(area_id)        #get the area as a text object
+		if (a != ""):                           #check if a VALID area geometry has been found in areas table       
+		
+			#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
+			self.cur.execute("SELECT e.id FROM elements AS e WHERE ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;"  % (a,self.epsg) )
+			r_elements = self.cur.fetchall()
+			
+			for el in r_elements:
+				elements.append(el[0])
+				
+		else:
+			print "ERROR: Invalid area id selected"
+			return elements
+		
+		return elements
     
     def get_building_output_locations(self,area_id):
         """
