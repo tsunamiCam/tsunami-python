@@ -46,10 +46,25 @@ class RunClass:
 
         self.grid_filename = self.grid.grid_filename
         self.buildings_dbname = grid.buildings_dbname
-        print run_dir+self.run_filename
+
         self.run_nc = RunNC(run_dir+"/"+self.run_filename, self.grid.grid_dir+"/"+self.grid.grid_filename,
                             run_id, name, description,grid.grid_dbname, grid.epsg, grid.buildings_dbname,grid.user)      
         
+        
+        
+        #Get the elements and element_codes in the domain - These are to be saved the run file before a model run occurs
+        self.elements = self.grid.get_elements_in_area(0)
+        i = 0
+        length = len(self.elements)
+        while i < length:
+            self.elements[i][1] = 1
+            i+=1	
+        
+        self.number_of_element_types = 1
+        self.element_types = []
+        self.element_types.append(1)
+        
+		
         self.ricom = Ricom(run_dir)
         self.ricom.title = description
         self.ricom.gridfilename = self.grid.grid_dir+"/"+self.grid.grid_filename        
@@ -82,6 +97,12 @@ class RunClass:
         """
         
         #sel.grid.grid_nc.close()
+
+		#Write the requested element codes for the run to the Run File
+        self.run_nc.set_element_codes(self.elements,self.number_of_element_types)
+        self.ricom.ntype = self.number_of_element_types
+
+        
 
         self.write_rcm(self.run_dir + "/tsunami.rcm")
         #self.write_rcm("tsunami.rcm")
@@ -357,6 +378,33 @@ class RunClass:
             print "RUN not defined in database"
      
         
+
+
+    def set_element_code_in_area(self,area_id = 0, element_code=1):
+        """
+        Set element code of all elements inside a given area to passed element_code
+        
+        area_id - the id (in the postgis table) of the area
+        element_code - target element code of areas
+                
+        NOTE: if area_id = 0 all elements in the domain are set
+        
+        """
+
+        elements_in_area = self.grid.get_elements_in_area(area_id) 
+        for el in elements_in_area:
+            self.elements[el[0]-1][1] = element_code
+            
+        #check to see if the element_code is a new type in the grid
+        newType = True
+        for type in self.element_types:
+            if type == element_code:
+                newType = False
+                
+        #if the element_code is new then iterate number_of_element_types   
+        if newType == True:
+            self.number_of_element_types += 1
+        
         
 
 class RunNC:
@@ -489,7 +537,8 @@ class RunNC:
         self.dataset.grid_db_epsg = self.grid_db_epsg
         self.dataset.buildings_dbname = self.buildings_dbname
         self.dataset.user = self.user   
-
+		
+	
         
     def __del__ (self):
         """
@@ -663,7 +712,7 @@ class RunNC:
             try: self.building_sides.createDimension('number_of_sides',0)
             except Exception, e: print "WARNING: %s" % e  
             self.buildingsAdded = True
-              
+				  
     
     def add_key_points_output_locations(self, key_points,nodeIds,distanceNodes, elementIds, distanceElements):
         """
@@ -851,6 +900,39 @@ class RunNC:
 
         
         return nodeIds,eta, uv, time
+
+
+    def set_element_codes(self,elements,number_of_element_types = 1):
+        """
+        Set the element codes within a given area. 
+        
+        USE: To set the element codes for the grid at runtime.
+        
+        """         
+        
+        #create dimensions
+        try: self.dataset.createDimension('number_of_elements_in_domain',len(elements))
+        except Exception, e: print "WARNING: %s" % e
+        
+        #create dimensions
+        try: self.dataset.createDimension('number_of_element_types',number_of_element_types)
+        except Exception, e: print "WARNING: %s" % e
+        
+        
+        try: element_codes = self.dataset.createVariable(varname = 'element_codes',datatype = 'i', dimensions=('number_of_elements_in_domain',)) 
+        except Exception, e:
+        	element_codes = self.dataset.variables['element_codes']
+        	print "WARNING: %s" % e
+        
+        codes = []
+        for el in elements:
+        	codes.append(el[1])
+        	
+        element_codes[:] = array(codes) 
+
+
+
+
         '''
         
         dict_id = {}        #dictionary maps the the node id to the location in the id array
@@ -1548,7 +1630,7 @@ class Ricom:
         ------------------------------------------------------------------------------
         """
         import shutil
-        shutil.copyfile(restart_filename, self.run_dir + "restart.bin")
+        shutil.copyfile(restart_filename, self.run_dir + "/restart.bin")
         self.irst = 1
         
 

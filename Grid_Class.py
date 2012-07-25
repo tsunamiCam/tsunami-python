@@ -228,7 +228,25 @@ class GridClass:
     def get_output_at_building(self,run_id,building_id):
         
         self.grid_pg.get_output_at_building(run_id,building_id) 
-        
+    
+    
+    
+    def get_elements_in_area(self,area_id = 0):
+		"""
+		Get all the elements inside a given area.  If area_id = 0, return all elements
+		
+		area_id - the id (in the postgis table) of the area
+		
+		
+		"""
+		return self.grid_pg.get_elements_in_area(area_id)
+	
+	
+	
+	
+	
+	
+	
 class GridNC:
     
     """
@@ -336,7 +354,7 @@ class GridNC:
         except Exception, e:
             print "WARNING: %s\n" % e
             print "WARNING: Sides variable already created."
-        
+
 
     def get_grid_nodes(self):
         """
@@ -2199,23 +2217,41 @@ class GridPG:
 		
 		area_id - the id (in the postgis table) of the area
 		
+		return: An array of the ids and codes corresponding to elements inside the area
+		
+		NOTE: if area_id = 0 return all elements within the area
 		
 		"""
 		elements = []        
-		a = self.get_area_by_id(area_id)        #get the area as a text object
-		if (a != ""):                           #check if a VALID area geometry has been found in areas table       
-		
-			#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
-			self.cur.execute("SELECT e.id FROM elements AS e WHERE ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;"  % (a,self.epsg) )
+		if area_id == 0:				#select the whole domain
+			self.cur.execute("SELECT id, code FROM elements")
 			r_elements = self.cur.fetchall()
-			
 			for el in r_elements:
-				elements.append(el[0])
+				elements.append([el[0],el[1]])
 				
+			
 		else:
-			print "ERROR: Invalid area id selected"
-			return elements
-		
+			a = self.get_area_by_id(area_id)        #get the area as a text object
+			if (a != ""):                           #check if a VALID area geometry has been found in areas table       
+			
+				'''
+				#get all the elements in the domain and their corresponding element codes
+				self.cur.execute("SELECT id, code FROM elements")
+				r_elements = self.cur.fetchall()
+				for el in r_elements:
+					elements.append([el[0],el[1]])
+				'''
+	
+				#SELECT all the elements inside the given area 
+				self.cur.execute("SELECT e.id, code FROM elements AS e WHERE ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;"  % (a,self.epsg) )
+				r_elements = self.cur.fetchall()
+				for el in r_elements:
+					elements.append([el[0],el[1]])
+					
+			else:
+				print "ERROR: Invalid area id selected"
+				return elements
+			
 		return elements
     
     def get_building_output_locations(self,area_id):
