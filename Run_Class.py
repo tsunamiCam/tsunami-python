@@ -51,8 +51,13 @@ class RunClass:
                             run_id, name, description,grid.grid_dbname, grid.epsg, grid.buildings_dbname,grid.user)      
         
         
+        '''
+        FRICTION
+        -------------------------------------------------
+        Get the elements and element_codes in the domain.
+        These are to be saved the run file before a model run occurs.
+        '''
         
-        #Get the elements and element_codes in the domain - These are to be saved the run file before a model run occurs
         self.elements = self.grid.get_elements_in_area(0)
         i = 0
         length = len(self.elements)
@@ -60,9 +65,22 @@ class RunClass:
             self.elements[i][1] = 1
             i+=1	
         
-        self.number_of_element_types = 1
-        self.element_types = []
-        self.element_types.append(1)
+        self.ntype = 1
+        self.friction_parameters = []
+        		
+		#set default friction parameters for element code = 1
+        self.friction_parameters.append([1, 0.0,   0.1,   0.0,   0.0025,   0.0,   0.0,   0.0])
+
+      
+        '''
+        Form DRAG
+        -------------------------------------------------
+        All form drag elements drag parameters are saved to FD2dInit.dat in self.run()
+        '''  
+        self.form_drag_elements = []				#list of form drag elements and corresponding element codes
+        self.number_of_drag_types = 0
+        self.drag_parameters = []				#Form Drag parameters list - each row in the list corresponds to a different element type
+        self.ifdrag = 0								#Form drag type - 0 = no drag
         
 		
         self.ricom = Ricom(run_dir)
@@ -95,13 +113,27 @@ class RunClass:
         Run RiCOM
         
         """
-        
-        #sel.grid.grid_nc.close()
+
 
 		#Write the requested element codes for the run to the Run File
-        self.run_nc.set_element_codes(self.elements,self.number_of_element_types)
-        self.ricom.ntype = self.number_of_element_types
+        self.run_nc.set_element_codes(self.elements,self.ntype)
+        self.ricom.ntype = self.ntype
 
+        #write the drag elements and parameters to FD2dInit.dat
+        dragfile = open(self.run_dir + "/FD2dInit.dat","w")
+        
+        dragfile.write("%s\n" % self.number_of_drag_types)
+        for fd in self.drag_parameters:
+            dragfile.write("%s %s %s %s\n" % (fd[0],fd[1],fd[2],fd[3]))
+        
+        dragfile.write("%s\n" % len(self.form_drag_elements))
+        for ele in self.form_drag_elements:
+            dragfile.write("%s %s\n" % (ele[0],ele[1])) 
+        
+        dragfile.close()       
+
+        
+            
         
 
         self.write_rcm(self.run_dir + "/tsunami.rcm")
@@ -378,34 +410,114 @@ class RunClass:
             print "RUN not defined in database"
      
         
-
-
-    def set_element_code_in_area(self,area_id = 0, element_code=1):
+    def init_friction(self,ntype = 1, friction_parameters = []):
+    	'''
+    	Initialise friction for the model run
+    	
+    	'''
+    	
+    	#ERROR checking
+    	if(len(friction_parameters) != ntype):
+    		print "Number of friction types does not equal ntype.  Exiting..."
+    		sys.exit()
+    	
+        i = 1
+        for frc in friction_parameters:
+        	if frc[0] != i:
+        		"Friction parameters list is not sequential. Please revise. Exiting...."
+        		sys.exit()
+        	if len(frc) != 8:
+        		"Incorrect number of parameter in friction type row. Please Revise. Exiting..."
+        		sys.exit()
+        	i+=1
+        
+        #Error checks PASSED - Continue
+        self.friction_parameters = friction_parameters
+        #friction = FrictionType()
+        #friction.fricTypeList = friction_parameters
+        #friction.ntype = self.ntype
+        
+        self.ricom.friction = friction_parameters
+        self.ricom.ntype = ntype
+        self.ntype = ntype
+            
+    def set_friction_in_area(self,area_id, element_code):
         """
         Set element code of all elements inside a given area to passed element_code
         
         area_id - the id (in the postgis table) of the area
         element_code - target element code of areas
-                
+            
         NOTE: if area_id = 0 all elements in the domain are set
         
         """
-
+        
+        #ERROR Checking - check if the element code is defined yet
+        if element_code > self.ntype:
+            print "The element code is not defined in the friction parameters list. Please Revise. Exiting..."
+            sys.exit()
+        
         elements_in_area = self.grid.get_elements_in_area(area_id) 
         for el in elements_in_area:
             self.elements[el[0]-1][1] = element_code
-            
-        #check to see if the element_code is a new type in the grid
-        newType = True
-        for type in self.element_types:
-            if type == element_code:
-                newType = False
-                
-        #if the element_code is new then iterate number_of_element_types   
-        if newType == True:
-            self.number_of_element_types += 1
+
+		
+    def init_form_drag(self, ifdrag = -1, number_of_drag_types = 1, drag_parameters = []):
+        '''
+        Initialise form drag for the model run
         
+        '''
+        #ERROR checking
+        if(len(drag_parameters) != number_of_drag_types):
+            print "Number of drag types in drag_parameter list does not number_of_drag_types.  Exiting..."
+            sys.exit()
+    
+        if(ifdrag < -2 or ifdrag > 0): 
+            print "Undefined ifdrag.  Choose: 0,-1,-2.  Exiting..."
+            sys.exit()
         
+        for fd in drag_parameters:
+            if fd[0] > self.ntype or fd[0] < 1:
+                "Element code not defined in friction parameter. Please Revise. Exiting...."
+                sys.exit()
+        
+        #Error checks PASSED - Continue
+        self.drag_parameters = drag_parameters
+        self.number_of_drag_types = number_of_drag_types
+        self.ricom.ifdrag = ifdrag 
+        self.ifdrag = ifdrag 
+        
+    def set_form_drag_in_area(self, area_id, element_code):
+        """
+        Set the drag for elements in a given area
+        
+        area_id - the id (in the postgis table) of the target area
+        element_code - target element code of elements in the areas
+        
+        NOTE: 	The element_code must correspond to an element code number in the drag_parameters list
+        		and the friction parameters list
+        		
+        		Drag definitions can be assigned multiple time to an element, however, only
+        		the last defined code will be used for computations in RiCOM
+        		
+        """
+        #ERROR Checking
+        dragDefined = False
+        for fd in self.drag_parameters:
+            if fd[0] == element_code:
+                dragDefined = True
+        
+        #if the element code is defined in the drag_parameters list
+        if dragDefined:
+            elements_in_area = self.grid.get_elements_in_area(area_id)              #get all elements in the area
+            for el in elements_in_area:                                             #save elements to the form_drag_elements array
+                self.form_drag_elements.append([el[0],element_code])         
+        else:
+            print "Given element_code is is not defined in the drag_parameters list. Exiting..."
+            sys.exit()
+        
+
+
 
 class RunNC:
     
@@ -1223,7 +1335,7 @@ class FrictionType:
         self.number_of_friction_types = 0
         #specifies if the friction types will be written in an external file or .rcm file
         #default: location = 0, write the friction types to an external file
-        self.location = 0
+        self.location = 1
         self.ntype = 0             
 
     #------------------------------------------------------------------------------
@@ -1238,7 +1350,7 @@ class FrictionType:
                 print "Warning: Friction Type = %s already exists.  Overwriting!" % type_id
                 self.fricTypeList.pop(i)
                 self.number_of_friction_types = self.number_of_friction_types - 1
-                i += 1
+            i += 1
                 
         
         self.fricTypeList.append([ int(type_id), float(a0), float(a1), float(r0), float(r1),
@@ -1375,7 +1487,6 @@ class Ricom:
         
         
         self.fault = OkadaFault()               #list of okada fault parameters - see class OkadaSegment
-        self.friction = FrictionType()          #list of friction types
         self.run_filename = ""
         self.run_dir = run_dir
         #---------------------------------------------------------
@@ -1427,8 +1538,10 @@ class Ricom:
         self.gamma0 = 0.55
         
         #Line 7
-        self.ntype = 0
-        
+        self.ntype = 1
+        self.friction = []
+        self.friction.append([1, 0.0,   0.1,   0.0,   0.0025,   0.0,   0.0,   0.0])          #list of friction types, DEFAULT Value for element code = 1
+       
         #Line 8
         self.frictionFile = "friction.par"
         
@@ -1542,13 +1655,19 @@ class Ricom:
         outfile.write("%s %s %s %s             delt, tmax, tscale, gamma0\n" % (self.delt, self.tmax, self.tscale, self.gamma0))
         
         #--------------------Write FRICTION TYPES-------------------------
-        outfile.write("%s                                  ntype\n" % self.friction.ntype)
-        if self.friction.ntype > 0:      #write friction types in .rcm file
-            for f in self.friction.fricTypeList:
+        if self.ntype != len(self.friction):
+                self.ntype = len(self.friction)
+                
+        outfile.write("%s                                  ntype\n" % self.ntype)
+        if self.ntype > 0:      #write friction types in .rcm file
+            for f in self.friction:
                 outfile.write("%s   %s   %s   %s   %s   %s   %s   %s\n" % (f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]))  
-        elif self.friction.ntype < 0:      #write friction types in external file
-            self.friction.write_friction_file(self.run_dir + "/" + self.frictionFile)
-            outfile.write(self.frictionFile + "\n")
+        
+        
+        
+        #elif self.friction.ntype < 0:      #write friction types in external file
+        #    self.friction.write_friction_file(self.run_dir + "/" + self.frictionFile)
+        #    outfile.write(self.frictionFile + "\n")
         #------------------------------------------------------------------
 
     
