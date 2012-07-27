@@ -244,7 +244,20 @@ class GridClass:
 	
 	
 	
+    def get_elements_in_buildings(self,area_id = 0):
+		"""
+		Get all the elements inside a given area and inside the building polygons.  If area_id = 0, return all elements
+		
+		area_id - the id (in the postgis table) of the area
+		
+		
+		"""
+		return self.grid_pg.get_elements_in_buildings(area_id)
 	
+	
+	
+	
+		
 	
 	
 class GridNC:
@@ -2176,17 +2189,16 @@ class GridPG:
         
         """
         
-        
         elements = []
         
         if area_id == 0:
         	#search the entire domain
 			#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
-			self.cur.execute("SELECT e.id FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) AND ST_Contains(b.geom,e.geom) ORDER BY e.id;" )
+			self.cur.execute("SELECT e.id, e.code FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) ORDER BY e.id;" )
 			r_elements = self.cur.fetchall()
 			
 			for el in r_elements:
-				elements.append(el[0])
+				elements.append([el[0],el[1]])
 				        	
         	
         else:
@@ -2194,14 +2206,14 @@ class GridPG:
 			if (a != ""):                           #check if a VALID area geometry has been found in areas table       
 	
 				#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
-				self.cur.execute("SELECT e.id FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) AND ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;"  % (a,self.epsg) )
+				self.cur.execute("SELECT e.id, e.code FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) AND ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;"  % (a,self.epsg) )
 				r_elements = self.cur.fetchall()
 				
 				for el in r_elements:
-					elements.append(el[0])
+					elements.append([el[0],el[1]])
 					
 				'''
-				self.cur.execute("SELECT e.id FROM elements AS e, buildings AS b WHERE ST_Intersects(b.geom,e.geom) ORDER BY e.id;")
+				self.cur.execute("SELECT e.id, e.code FROM elements AS e, buildings AS b WHERE ST_Intersects(b.geom,e.geom) ORDER BY e.id;")
 				r_elements = self.cur.fetchall()
 				'''
 					

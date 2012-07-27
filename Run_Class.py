@@ -517,7 +517,34 @@ class RunClass:
             sys.exit()
         
 
-
+    def set_form_drag_in_buildings(self, area_id, element_code):
+        """
+        Set the drag for elements inside the building areas
+        
+        area_id - the id (in the postgis table) of the target area
+        element_code - target element code of elements in the areas
+        
+        NOTE: 	The element_code must correspond to an element code number in the drag_parameters list
+        		and the friction parameters list
+        		
+        		Drag definitions can be assigned multiple time to an element, however, only
+        		the last defined code will be used for computations in RiCOM
+        		
+        """
+        #ERROR Checking
+        dragDefined = False
+        for fd in self.drag_parameters:
+            if fd[0] == element_code:
+                dragDefined = True
+        
+        #if the element code is defined in the drag_parameters list
+        if dragDefined:
+            elements_in_area = self.grid.get_elements_in_buildings(area_id)              #get all elements in the area
+            for el in elements_in_area:                                             #save elements to the form_drag_elements array
+                self.form_drag_elements.append([el[0],element_code])         
+        else:
+            print "Given element_code is is not defined in the drag_parameters list. Exiting..."
+            sys.exit()
 
 class RunNC:
     
