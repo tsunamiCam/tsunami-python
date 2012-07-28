@@ -546,6 +546,67 @@ class RunClass:
             print "Given element_code is is not defined in the drag_parameters list. Exiting..."
             sys.exit()
 
+
+    def set_form_drag_in_buildings2(self, area_id, element_code):
+        """
+        Set the drag for elements inside the building areas
+        
+        area_id - the id (in the postgis table) of the target area
+        element_code - target element code of elements in the areas
+        
+        NOTE:     The element_code must correspond to an element code number in the drag_parameters list
+                and the friction parameters list
+                
+                Drag definitions can be assigned multiple time to an element, however, only
+                the last defined code will be used for computations in RiCOM
+                
+        """
+        
+        elements_in_area = []
+        #ERROR Checking
+        dragDefined = False
+        for fd in self.drag_parameters:
+            if fd[0] == element_code:
+                dragDefined = True
+        
+        #if the element code is defined in the drag_parameters list
+        if dragDefined:
+            elements_in_area = self.grid.get_elements_in_buildings2(area_id)              #get all elements in the area
+            for el in elements_in_area:                                             #save elements to the form_drag_elements array
+                self.form_drag_elements.append([el[0],element_code])         
+        else:
+            print "Given element_code is is not defined in the drag_parameters list. Exiting..."
+            sys.exit()
+
+        return len(elements_in_area)
+    
+
+    def get_nodes_at_building_edges(self, area_id, node_code):
+        """
+
+        """
+        
+        
+        outfile = open('NodesAtBuildings_code2.dat',"w")
+
+        nodes_at_buildings = []
+        nodes_all = []
+        
+        nodes_all, nodes_at_buildings = self.grid.get_nodes_at_building_edges(area_id)
+        print "Number of Nodes at building edges = %s" % len(nodes_at_buildings)
+
+
+        for node in nodes_at_buildings:
+            nodes_all[node[0]-1][1] = 2
+        
+        for n in nodes_all:
+            if n[1] == 10 or n[1] == 100:
+                n[1] = 1
+            outfile.write("%s %s\n" % (str(n[0]).ljust(12),n[1]))
+        
+        outfile.close()
+
+
 class RunNC:
     
     """

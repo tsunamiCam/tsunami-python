@@ -255,9 +255,26 @@ class GridClass:
 		return self.grid_pg.get_elements_in_buildings(area_id)
 	
 	
+    def get_elements_in_buildings2(self,area_id = 0):
+        """
+        Get all the elements inside a given area and inside the building polygons.  If area_id = 0, return all elements
+        
+        area_id - the id (in the postgis table) of the area
+        
+        
+        """
+        return self.grid_pg.get_elements_in_buildings2(area_id)	
 	
-	
-		
+    
+    def get_nodes_at_building_edges(self,area_id = 0):
+        """
+        Get all the elements inside a given area and inside the building polygons.  If area_id = 0, return all elements
+        
+        area_id - the id (in the postgis table) of the area
+        
+        
+        """
+        return self.grid_pg.get_nodes_at_building_edges(area_id)    		
 	
 	
 class GridNC:
@@ -2229,7 +2246,176 @@ class GridPG:
 				return elements
         	
         return elements
-    
+
+
+    def get_elements_in_buildings2(self,area_id = 0):
+        """
+        Get all the elements corresponding to the buildings that are with the given area polygon.
+        
+        area_id - the id (in the postgis table) of the area that the buildings of interest are inside
+
+        
+        """
+        
+        elements = []
+        
+        if area_id == 0:
+            #search the entire domain
+                
+            #SELECT all the buildings that are inside the domain 
+            self.cur.execute("SELECT id, ST_AsText(geom) FROM buildings;")
+            buildings = self.cur.fetchall() 
+
+            for b in buildings:
+                id = int(b[0])
+                p = self._offset_polygon2_(b[1],0.1)
+            
+                #SELECT all the elements intersecting  the building footprint polygon (i.e. b offset by -0.1)
+                self.cur.execute("SELECT e.id, e.code FROM elements AS e \
+                                    WHERE ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;" \
+                                    % (p, self.epsg))
+                r_elements = self.cur.fetchall()
+            
+                for el in r_elements:
+                    elements.append([el[0],el[1]])
+
+
+                            
+            
+        else:
+            a = self.get_area_by_id(area_id)        #get the area as a text object
+            if (a != ""):                           #check if a VALID area geometry has been found in areas table       
+        
+                #SELECT all the buildings that are inside the area polygon
+                self.cur.execute("SELECT b.id, ST_AsText(b.geom) FROM buildings AS b \
+                                    WHERE ST_Contains(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" % (a,self.epsg))
+                buildings = self.cur.fetchall() 
+ 
+                for b in buildings:
+                    id = int(b[0])
+                    p = self._offset_polygon2_(b[1],0.1)
+                
+                    #SELECT all the elements intersecting  the building footprint polygon (i.e. b offset by -0.1)
+                    self.cur.execute("SELECT e.id, e.code FROM elements AS e \
+                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;" \
+                                        % (p, self.epsg))
+                    r_elements = self.cur.fetchall()
+                
+                    for el in r_elements:
+                        elements.append([el[0],el[1]])
+                        
+            else:
+                print "ERROR: Invalid area id selected"
+                return elements
+            
+        return elements
+
+
+
+    def get_nodes_at_building_edges(self,area_id = 0):
+        """
+        Get all the elements corresponding to the buildings that are with the given area polygon.
+        
+        area_id - the id (in the postgis table) of the area that the buildings of interest are inside
+
+        
+        """
+        
+        nodes_at_buildings = []
+        nodes_all = []
+        
+        if area_id == 0:
+            #search the entire domain
+                
+            #SELECT all the buildings that are inside the domain 
+            self.cur.execute("SELECT id, ST_AsText(geom) FROM buildings;")
+            buildings = self.cur.fetchall() 
+
+            for b in buildings:
+                id = int(b[0])
+                p1 = self._offset_polygon2_(b[1],0.1)
+                p2 = self._offset_polygon2_(b[1],-0.1)
+            
+                #SELECT all the elements intersecting  the building footprint polygon (i.e. b offset by -0.1)
+                self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
+                                    WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND NOT ST_Contains(ST_GeomFromText('%s',%s),n.geom);" \
+                                    % (p1, self.epsg,p2, self.epsg))
+                r_nodes = self.cur.fetchall()
+            
+                for node in r_nodes:
+                    nodes_at_buildings.append([node[0],node[1]])
+
+
+                            
+            
+        else:
+            a = self.get_area_by_id(area_id)        #get the area as a text object
+            if (a != ""):                           #check if a VALID area geometry has been found in areas table       
+        
+                #SELECT all the buildings that are inside the area polygon
+                self.cur.execute("SELECT b.id, ST_AsText(b.geom) FROM buildings AS b \
+                                    WHERE ST_Contains(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" % (a,self.epsg))
+                buildings = self.cur.fetchall() 
+                print "Number of Buildings = %s" % len(buildings)
+                
+#                self.cur.execute("SELECT s.id, s.node_ids FROM sides AS s, buildings AS b \
+#                    WHERE ST_Distance(b.geom,s.geom) < 0.2;")
+#                
+#                sides = self.cur.fetchall() 
+#                
+#                print "Number of Sides = %s" % len(sides)
+
+
+                
+                for b in buildings:
+                    id = int(b[0])
+                    p1 = self._offset_polygon2_(b[1],0.3)
+                    p2 = self._offset_polygon2_(b[1],-0.3)
+                
+                    #SELECT all the elements intersecting  the building footprint polygon (i.e. b offset by -0.1)
+                    self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
+                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND NOT ST_Contains(ST_GeomFromText('%s',%s),n.geom);" \
+                                        % (p1, self.epsg,p2, self.epsg))
+                    '''
+
+                    self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
+                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) \
+                                        OR ST_Distance(ST_GeomFromText('%s',%s),n.geom) < 0.2;" % (p1, self.epsg,p1, self.epsg))
+                                        
+                    '''
+                    
+#                    self.cur.execute("SELECT n.id, n.code FROM nodes AS n, buildings AS b \
+#                                        WHERE ST_Distance(b.geom,n.geom) < 0.2 AND b.id = %s;" % (id))
+
+                    r_nodes = self.cur.fetchall()
+                    
+                    
+                    #if len(r_nodes) == 0:
+                    
+                    if (len(r_nodes) < 4):
+                        print "ID = %s, L = %s *****************    " % (id, len(r_nodes))
+                    else:
+                        print "ID = %s, L = %s" % (id, len(r_nodes))
+                        
+
+                    for n in r_nodes:
+                        nodes_at_buildings.append([n[0],n[1]])
+                        
+            else:
+                print "ERROR: Invalid area id selected"
+                return nodes_at_buildings
+            
+            
+        #Get all the nodes in the domain
+        self.cur.execute("SELECT id, code FROM nodes")
+        r_nodes = self.cur.fetchall()
+        for n in r_nodes:
+            nodes_all.append([n[0],n[1]])      
+            
+        return nodes_all,nodes_at_buildings
+
+  
+
     def get_elements_in_area(self,area_id = 0):
 		"""
 		Get all the elements inside a given area.
