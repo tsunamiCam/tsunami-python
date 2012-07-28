@@ -2369,13 +2369,13 @@ class GridPG:
                 
                 for b in buildings:
                     id = int(b[0])
-                    p1 = self._offset_polygon2_(b[1],0.3)
-                    p2 = self._offset_polygon2_(b[1],-0.3)
+                    #p1 = self._offset_polygon2_(b[1],0.5)
+                    #p2 = self._offset_polygon2_(b[1],-0.5)
                 
                     #SELECT all the elements intersecting  the building footprint polygon (i.e. b offset by -0.1)
-                    self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
-                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND NOT ST_Contains(ST_GeomFromText('%s',%s),n.geom);" \
-                                        % (p1, self.epsg,p2, self.epsg))
+                    #self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
+                    #                    WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND NOT ST_Contains(ST_GeomFromText('%s',%s),n.geom);" \
+                    #                    % (p1, self.epsg,p2, self.epsg))
                     '''
 
                     self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
@@ -2384,8 +2384,9 @@ class GridPG:
                                         
                     '''
                     
-#                    self.cur.execute("SELECT n.id, n.code FROM nodes AS n, buildings AS b \
-#                                        WHERE ST_Distance(b.geom,n.geom) < 0.2 AND b.id = %s;" % (id))
+                    self.cur.execute("SELECT n.id, n.code FROM nodes AS n, buildings AS b \
+                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND \
+                                        ST_Distance(b.geom,n.geom) < 0.2 AND b.id = %s;" % (a,self.epsg,id))
 
                     r_nodes = self.cur.fetchall()
                     
