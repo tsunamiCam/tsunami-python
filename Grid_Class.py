@@ -2211,7 +2211,14 @@ class GridPG:
 				
 				for el in r_elements:
 					elements.append([el[0],el[1]])
-					
+
+				#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
+				self.cur.execute("SELECT e.id, e.code FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) AND ST_Intersects(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;"  % (a,self.epsg) )
+				r_elements = self.cur.fetchall()
+				
+				for el in r_elements:
+					elements.append([el[0],el[1]])
+
 				'''
 				self.cur.execute("SELECT e.id, e.code FROM elements AS e, buildings AS b WHERE ST_Intersects(b.geom,e.geom) ORDER BY e.id;")
 				r_elements = self.cur.fetchall()
