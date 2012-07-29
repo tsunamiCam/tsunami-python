@@ -2320,7 +2320,7 @@ class GridPG:
 
         
         """
-        
+        outfile = open('NodesAtBuildings_code2_v2.ngh',"w")
         nodes_at_buildings = []
         nodes_all = []
         
@@ -2366,27 +2366,52 @@ class GridPG:
 #                print "Number of Sides = %s" % len(sides)
 
 
-                
+                #b = buildings[0]
                 for b in buildings:
+                    #convert building polygon to a linestring
+                    #-----------------------------------------------
+                    #WHY? - PostGIS functions like ST_Distance - return the distance to the 
+                    #Polygon as an area not as a line
+                    i = b[1].find('POLYGON((')
+                    j = b[1].find('))')
+                    pts = b[1][i+9:j]
+                    pts = pts.replace(',',' ').split()
+                    i = 0
+                    line_string = 'LINESTRING('                    
+                    while i < len(pts)-2:
+                        line_string = line_string + "%s %s," % (pts[i], pts[i+1])
+                        i +=2
+                    
+                    line_string = line_string + "%s %s)" % (pts[i], pts[i+1])   
+                    
+                    #print b[1]
+                    #print line_string                
+                    
                     id = int(b[0])
                     #p1 = self._offset_polygon2_(b[1],0.5)
-                    #p2 = self._offset_polygon2_(b[1],-0.5)
+                    p2 = self._offset_polygon2_(b[1],-0.2)
                 
                     #SELECT all the elements intersecting  the building footprint polygon (i.e. b offset by -0.1)
                     #self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
                     #                    WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND NOT ST_Contains(ST_GeomFromText('%s',%s),n.geom);" \
                     #                    % (p1, self.epsg,p2, self.epsg))
                     '''
-
+    
                     self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
                                         WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) \
-                                        OR ST_Distance(ST_GeomFromText('%s',%s),n.geom) < 0.2;" % (p1, self.epsg,p1, self.epsg))
+                                        AND ST_Distance(ST_GeomFromText('%s',%s),n.geom) < 0.2 ;" % (p1, self.epsg,p1, self.epsg))
                                         
                     '''
-                    
-                    self.cur.execute("SELECT n.id, n.code FROM nodes AS n, buildings AS b \
+#                    
+#                    self.cur.execute("SELECT n.id, n.code FROM nodes AS n, buildings AS b \
+#                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND \
+#                                        ST_Distance(b.geom,n.geom) < 0.2 \
+#                                        AND NOT ST_Contains(ST_GeomFromText('%s',%s),n.geom) \
+#                                        AND b.id = %s;" % (a,self.epsg,p2,self.epsg, id))
+    
+                    self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
                                         WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND \
-                                        ST_Distance(b.geom,n.geom) < 0.2 AND b.id = %s;" % (a,self.epsg,id))
+                                        ST_Distance(ST_GeomFromText('%s',%s),n.geom) < 0.1;" % (a,self.epsg,line_string,self.epsg))
 
                     r_nodes = self.cur.fetchall()
                     
@@ -2398,21 +2423,52 @@ class GridPG:
                     else:
                         print "ID = %s, L = %s" % (id, len(r_nodes))
                         
-
+    
                     for n in r_nodes:
                         nodes_at_buildings.append([n[0],n[1]])
-                        
+                            
             else:
                 print "ERROR: Invalid area id selected"
                 return nodes_at_buildings
             
-            
+        
+        print "# of Nodes at Building edges = %s" % len(nodes_at_buildings)
+
+        
         #Get all the nodes in the domain
-        self.cur.execute("SELECT id, code FROM nodes")
+        self.cur.execute("SELECT id, xyz, code, neighbours FROM nodes")
         r_nodes = self.cur.fetchall()
+        
         for n in r_nodes:
-            nodes_all.append([n[0],n[1]])      
+            nodes_all.append([n[0],n[1][0],n[1][1],n[2],n[1][2],n[3]])
             
+             
+        for n in nodes_at_buildings:
+            nodes_all[n[0]-1][3] = 2
+        
+        
+        print "Domain Size of Nodes = %s" % len(nodes_all)
+        
+        print "Writing the new NGH file..."
+        
+        outfile.write("#NGH\n       0.00000       0.00000       0.00000       0.00000         0\n      %s\n            %s\n" % (len(nodes_all), len(nodes_all[0][5]) ))
+        for n in nodes_all:
+            if n[3] == 10 or n[3] == 100:
+                n[3] = 1
+            line = ""
+            line = "%s %s %s %s %s    " % (str(n[0]).ljust(10),str(n[1]).ljust(15),str(n[2]).ljust(15),str(n[3]).ljust(4),str(n[4]).ljust(10))
+            
+            for nbr in n[5]:
+                line = line + "%s" % (str(int(nbr)).ljust(8))
+            
+            line = line + "\n"
+            
+            outfile.write(line)
+        
+        outfile.close()        
+#        for n in r_nodes:
+#            nodes_all.append([n[0],n[1]])      
+#            
         return nodes_all,nodes_at_buildings
 
   

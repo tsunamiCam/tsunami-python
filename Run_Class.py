@@ -587,14 +587,15 @@ class RunClass:
         """
         
         
-        outfile = open('NodesAtBuildings_code2.dat',"w")
+        #outfile = open('NodesAtBuildings_code2.dat',"w")
 
         nodes_at_buildings = []
         nodes_all = []
         
         nodes_all, nodes_at_buildings = self.grid.get_nodes_at_building_edges(area_id)
         print "Number of Nodes at building edges = %s" % len(nodes_at_buildings)
-
+        
+        '''
 
         for node in nodes_at_buildings:
             nodes_all[node[0]-1][1] = 2
@@ -603,9 +604,10 @@ class RunClass:
             if n[1] == 10 or n[1] == 100:
                 n[1] = 1
             outfile.write("%s %s\n" % (str(n[0]).ljust(12),n[1]))
+            
         
         outfile.close()
-
+        '''
 
 class RunNC:
     
