@@ -82,6 +82,13 @@ class RunClass:
         self.drag_parameters = []				#Form Drag parameters list - each row in the list corresponds to a different element type
         self.ifdrag = 0								#Form drag type - 0 = no drag
         
+        
+        #TEST: Alter element adjacency matrix
+        self.ieadj = self.grid.grid_nc.get_grid_ieadj()
+        
+        print "SIZE if ieadj = %s" % len(self.ieadj)
+
+        
 		
         self.ricom = Ricom(run_dir)
         self.ricom.title = description
@@ -118,6 +125,12 @@ class RunClass:
 		#Write the requested element codes for the run to the Run File
         self.run_nc.set_element_codes(self.elements,self.ntype)
         self.ricom.ntype = self.ntype
+        
+        #write the element adjacency array if change:
+        
+        if self.ieadj != []:
+            self.run_nc.set_ieadj(self.ieadj)
+
 
         #write the drag elements and parameters to FD2dInit.dat
         dragfile = open(self.run_dir + "/FD2dInit.dat","w")
@@ -608,6 +621,16 @@ class RunClass:
         
         outfile.close()
         '''
+    def adjust_ieadj(self):
+        '''
+        
+        
+        
+        
+        '''
+        
+        self.ieadj = self.grid.adjust_ieadj()
+        
 
 class RunNC:
     
@@ -1132,6 +1155,22 @@ class RunNC:
         	
         element_codes[:] = array(codes) 
 
+
+    def set_ieadj(self,ieadj_in):
+ 
+ 
+
+        #create dimensions
+        try: self.dataset.createDimension('ieadj_dimensions',5)
+        except Exception, e: print "WARNING: %s" % e
+
+        try: ieadj = self.dataset.createVariable(varname = 'ieadj',datatype = 'i', dimensions=('number_of_elements_in_domain','ieadj_dimensions')) 
+        except Exception, e:
+            ieadj = self.dataset.variables['ieadj']
+            print "WARNING: %s" % e
+        
+
+        ieadj[:] = array(ieadj_in) 
 
 
 

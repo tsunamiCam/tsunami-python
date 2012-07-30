@@ -274,7 +274,29 @@ class GridClass:
         
         
         """
-        return self.grid_pg.get_nodes_at_building_edges(area_id)    		
+        return self.grid_pg.get_nodes_at_building_edges(area_id)
+
+
+    def adjust_ieadj(self):
+        '''
+        
+        TEST - adjust the ieadj array in the grid for a building    
+        
+        '''
+        edgeElements = self.grid_pg.get_elements_at_building_edges()
+        ieadj = self.grid_nc.get_grid_ieadj()
+        for e1 in edgeElements:
+            adjElements = [ieadj[e1-1][1],ieadj[e1-1][2],ieadj[e1-1][3]]
+            i = 0
+            for e2 in adjElements:
+                if e2 in edgeElements:
+                    ieadj[e1 - 1][i+1] = 0
+                
+                i+=1
+                    
+            print ieadj[e1-1]
+                    
+        return ieadj
 	
 	
 class GridNC:
@@ -425,7 +447,16 @@ class GridNC:
         
         return id, elements, code
         
-        
+
+    def get_grid_ieadj(self):
+        """
+        Get the elements adjacency array from the Netcdf grid file
+    
+        """
+        ieadj = self.domain.variables['ieadj'][:]
+        ieadj.tolist()
+        return ieadj
+       
     def get_grid_sides(self):
         """
         Reads the netcdf grid file and returns the sides - [v1 v2], side_id
@@ -2385,7 +2416,7 @@ class GridPG:
                     line_string = line_string + "%s %s)" % (pts[i], pts[i+1])   
                     
                     #print b[1]
-                    #print line_string                
+                    print line_string                
                     
                     id = int(b[0])
                     #p1 = self._offset_polygon2_(b[1],0.5)
@@ -2410,8 +2441,8 @@ class GridPG:
 #                                        AND b.id = %s;" % (a,self.epsg,p2,self.epsg, id))
     
                     self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
-                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND \
-                                        ST_Distance(ST_GeomFromText('%s',%s),n.geom) < 0.1;" % (a,self.epsg,line_string,self.epsg))
+                                            WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND \
+                                            ST_Distance(ST_GeomFromText('%s',%s),n.geom) < 0.1;" % (a,self.epsg,line_string,self.epsg))
 
                     r_nodes = self.cur.fetchall()
                     
@@ -2470,6 +2501,74 @@ class GridPG:
 #            nodes_all.append([n[0],n[1]])      
 #            
         return nodes_all,nodes_at_buildings
+
+    def get_elements_at_building_edges(self):
+        '''
+        
+        
+        '''
+        
+        
+        self.cur.execute("SELECT b.id, ST_AsText(b.geom) FROM buildings AS b \
+                            WHERE b.id = 473;")
+        
+        
+        buildings = self.cur.fetchall()
+        b = buildings[0]
+
+              
+        #convert building polygon to a linestring
+        #-----------------------------------------------
+        #WHY? - PostGIS functions like ST_Distance - return the distance to the 
+        #Polygon as an area not as a line
+        i = b[1].find('POLYGON((')
+        j = b[1].find('))')
+        pts = b[1][i+9:j]
+        pts = pts.replace(',',' ').split()
+        i = 0
+        line_string = 'LINESTRING('                    
+        while i < len(pts)-2:
+            line_string = line_string + "%s %s," % (pts[i], pts[i+1])
+            i +=2
+        
+        line_string = line_string + "%s %s)" % (pts[i], pts[i+1])  
+
+
+        self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
+                            WHERE ST_Distance(ST_GeomFromText('%s',%s),n.geom) < 0.1;" % (line_string,self.epsg))
+        r_nodes = self.cur.fetchall()
+        
+        nodes = []
+        for n in r_nodes:
+            nodes.append(n[0])
+
+         
+        self.cur.execute("SELECT e.id, e.node_ids,e.code FROM elements AS e \
+                            WHERE ST_Distance(ST_GeomFromText('%s',%s),e.geom) < 0.1;" % (line_string,self.epsg))
+
+        r_elements = self.cur.fetchall()
+        elements = []
+        for e in r_elements:
+            elements.append([e[0], e[1]])
+            
+            
+        elementEdge = []
+        for e in elements:
+            i = 0
+            for n in e[1]:
+                if n in nodes:
+                    i+=1
+            
+            if i == 2:
+                elementEdge.append(e[0])
+            
+
+        print "All close elements to 473: %s" % (len(elements))
+        for e in elements:
+            print "%s" % e[0]
+            
+        print "Edge elements to Building 473: %s \n %s" % (len(elementEdge),elementEdge)
+        return elementEdge
 
   
 
