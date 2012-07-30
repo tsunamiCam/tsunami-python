@@ -2443,8 +2443,8 @@ class GridPG:
             nodes_all.append([n[0],n[1][0],n[1][1],n[2],n[1][2],n[3]])
             
              
-        for n in nodes_at_buildings:
-            nodes_all[n[0]-1][3] = 2
+        #for n in nodes_at_buildings:
+        #    nodes_all[n[0]-1][3] = 2
         
         
         print "Domain Size of Nodes = %s" % len(nodes_all)
