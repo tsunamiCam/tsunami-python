@@ -12,6 +12,9 @@ import sys
 from osgeo import ogr #@UnresolvedImport
 from osgeo import osr #@UnresolvedImport
 
+from Grid_Class import GridPG
+
+
 #module to allow commands to be sent to the command line (i.e. Terminal)
 from subprocess import call
 from ctypes import byref, cdll
@@ -37,7 +40,7 @@ class ReadOutput:
         except Exception, e:
             print "ERROR: %s" % e
             sys.exit()
-        
+    
         run_id = getattr(self.run_dataset,"run_id")          
         grid_dbname = getattr(self.run_dataset,"grid_dbname")          
         grid_db_epsg = getattr(self.run_dataset,"grid_db_epsg")          
@@ -45,9 +48,10 @@ class ReadOutput:
         name = getattr(self.run_dataset,"name")          
         description = getattr(self.run_dataset,"description")          
         user = getattr(self.run_dataset,"user")    
-        
+  
+        self.domain_grp = self.grid_dataset.groups['domain'] 
+                
         #Create all the BUILDINGS groups
-
         self.buildings_grp = self.run_dataset.groups['buildings'] 
         self.building_nodes_grp = self.buildings_grp.groups['nodes']          
         self.building_elements_grp = self.buildings_grp.groups['elements']   
@@ -68,6 +72,10 @@ class ReadOutput:
         
         self.__init_buildings_dictionary__()
 
+        #connect to the POSTGIS database
+        
+        self.grid_pg = GridPG(grid_dbname=grid_dbname, epsg = grid_db_epsg) 
+        self.slen = self.grid_pg.get_side_lengths()
 
         
 
@@ -125,18 +133,21 @@ class ReadOutput:
         nodes = self.buildings_dict[id]['nodes']
         elements = self.buildings_dict[id]['elements']
         sides = self.buildings_dict[id]['sides']
-        
-        slen = self.grid_dataset.variables['slen'][:]
-        
+                
         
         speedMax_dict = {}
         speedAvg_dict = {}
+        speedAvgWeighted_dict = {}
+
         speedAvgMax = zeros(len(self.buildings_dict))
         speedMaxMax = zeros(len(self.buildings_dict)) 
+        speedAvgMaxWeighted = zeros(len(self.buildings_dict))      #speed weighted by the side length
+
+        
         sides_time = self.building_sides_grp.variables['time'][:]
-        i = 3500
+        i = 3495
         #for step in sides_time:
-        while i < 3510:
+        while i < 3500:
             #get all the UV results for the current time step            
             sidesU = self.building_sides_grp.variables['uv'][:,i,0]
             sidesV = self.building_sides_grp.variables['uv'][:,i,1]
@@ -145,14 +156,16 @@ class ReadOutput:
             #get the MAX flow speed around each build for the current time step
             for building in self.buildings_dict.iteritems():      
                 id = building[0]
-                if i == 3500:
+                if i == 3495:
                     speedMax_dict[id] = {'sides': []}
                     speedAvg_dict[id] = {'sides': []}
+                    speedAvgWeighted_dict[id] = {'sides': []}
     
                     
                 nodes = self.buildings_dict[id]['nodes']
                 elements = self.buildings_dict[id]['elements']
                 sides = self.buildings_dict[id]['sides']
+                perimeter = self.buildings_dict[id]['perimeter']
                 
                 nsides = len(sides)
                 nnodes = len(nodes)
@@ -160,6 +173,8 @@ class ReadOutput:
                 
                 speedMax = 0
                 speedAvg = 0
+                speedAvgWeighted = 0
+
                 for s in sides:
                     if s != 0:
                         u = sidesU[self.side_ids_dict[s]]
@@ -167,16 +182,24 @@ class ReadOutput:
     
                         speed = math.sqrt(u*u + v*v)
                         speedAvg = speedAvg + speed
+                        #slen is degrees!!! must fix
+                        speedAvgWeighted = speedAvgWeighted + speed/self.slen[s-1]
                         if speed > speedMax:
                             speedMax = speed
-                        
                 speedMax_dict[id]['sides'].append(speedMax)
                 speedAvg_dict[id]['sides'].append(speedAvg/nsides)
+                speedAvgWeighted = (speedAvgWeighted/nsides)*perimeter
+                
+                speedAvgWeighted_dict[id]['sides'].append(speedAvgWeighted)
+                
                 
                 if (speedAvg/nsides > speedAvgMax[j]):
                     speedAvgMax[j] = speedAvg/nsides
 
 
+                if (speedAvgWeighted > speedAvgMaxWeighted[j]):
+                    speedAvgMaxWeighted[j] = speedAvgWeighted
+                    
                 if (speedMax > speedMaxMax[j]):
                     speedMaxMax[j] = speedMax
                 
@@ -185,7 +208,7 @@ class ReadOutput:
                         
             i+=1
             
-        return speedAvgMax, speedMaxMax
+        return speedAvgMax, speedMaxMax,speedAvgMaxWeighted
         #return array(speedMax_dict[id]['sides']), array(speedAvg_dict[id]['sides']), sides_time
                  
                     

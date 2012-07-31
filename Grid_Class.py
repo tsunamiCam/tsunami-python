@@ -2502,6 +2502,25 @@ class GridPG:
 #            
         return nodes_all,nodes_at_buildings
 
+
+
+    def get_side_lengths(self):
+        """
+        Returns a list of side lengths of each of the sides in the domain
+        """
+
+        self.cur.execute("SELECT ST_Length(geom) FROM sides AS s;")
+        r_sides = self.cur.fetchall()
+        side_lengths = []
+        for s in r_sides:
+            side_lengths.append(s[0])
+            
+        return side_lengths
+            
+ 
+        
+        
+
     def get_elements_at_building_edges(self):
         '''
         
