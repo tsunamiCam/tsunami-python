@@ -84,9 +84,8 @@ class RunClass:
         
         
         #TEST: Alter element adjacency matrix
-        self.ieadj = self.grid.grid_nc.get_grid_ieadj()
-        
-        print "SIZE if ieadj = %s" % len(self.ieadj)
+        #self.ieadj = self.grid.grid_nc.get_grid_ieadj()
+        #print "SIZE if ieadj = %s" % len(self.ieadj)
 
         
 		
@@ -128,8 +127,8 @@ class RunClass:
         
         #write the element adjacency array if change:
         
-        if self.ieadj != []:
-            self.run_nc.set_ieadj(self.ieadj)
+        #if self.ieadj != []:
+        #    self.run_nc.set_ieadj(self.ieadj)
 
 
         #write the drag elements and parameters to FD2dInit.dat
@@ -217,6 +216,8 @@ class RunClass:
         
         
         """ 
+        print "Getting buildings locations..."
+        
         dictionary = self.grid.get_building_output_locations(area_id)
         if (dictionary != {}):
             self.run_nc.add_building_output_locations(dictionary, start, end,step)
@@ -815,12 +816,14 @@ class RunNC:
             elementsAll = []
             sidesAll = []
             id = []
+            perimeter = []
             
             for row in dictionary.iteritems(): 
                 id.append(row[0])              
                 n = row[1]['nodes'] 
                 e = row[1]['elements']
                 s = row[1]['sides']
+                perimeter.append(row[1]['perimeter'])
                 nodesAll.extend(n)
                 elementsAll.extend(e)
                 sidesAll.extend(s)
@@ -872,7 +875,12 @@ class RunNC:
             except Exception, e:
                 building_wkt = self.buildings.variables['building_wkt']            
                 print "WARNING: %s" % e
-    
+
+            try: building_perimeter = self.buildings.createVariable(varname = 'building_perimeter',datatype = 'd', dimensions=('number_of_buildings',)) 
+            except Exception, e:
+                building_wkt = self.buildings.variables['building_perimeter']            
+                print "WARNING: %s" % e
+
             try: building_nodes = self.buildings.createVariable(varname = 'building_nodes',datatype = 'i', dimensions=('number_of_buildings','max_number_nodes',)) 
             except Exception, e:
                 building_nodes = self.buildings.variables['building_nodes']            
@@ -892,7 +900,7 @@ class RunNC:
             building_elements[:] = elements
             building_sides[:] = sides
             building_id[:] = array(id) 
-            
+            building_perimeter[:] = array(perimeter)
             #Set the attributes
             self.building_nodes.start = start
             self.building_nodes.finish = end

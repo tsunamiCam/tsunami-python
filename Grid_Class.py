@@ -2614,83 +2614,136 @@ class GridPG:
 				return elements
 			
 		return elements
-    
+
     def get_building_output_locations(self,area_id):
         """
         For each building polygon get id's of the nodes, elements and sides that are inside it
         
-        boundary_WKB: bounding polygon of the area where output is requested
+        area_id: id of the area where building output is requested
         
         Returns: a dictionary of sides,elements and nodes corresponding to each footprint
         
+        TODO: get elements that make up the footprint
+        
         """                     
 
-
-    
         
+        self.cur.execute("DROP TABLE IF EXISTS building_sides;")
+        self.cur.execute("CREATE TABLE building_sides (id int4);")    
+        self.cur.execute("SELECT AddGeometryColumn('building_sides', 'geom', %s, 'LINESTRING', 2);" % self.epsg) 
+        self.conn.commit()       
+  
         a = self.get_area_by_id(area_id)        #get the area as a text object
         if (a != ""):                           #VALID area geometry has been found in areas table       
         
-            self.cur.execute("SELECT b.id, ST_AsText(b.geom) FROM buildings AS b WHERE ST_Contains(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" % (a,self.epsg))
-            footprints = self.cur.fetchall() 
-
+            self.cur.execute("SELECT b.id, ST_AsText(b.geom), ST_Perimeter(b.geom) FROM buildings AS b WHERE ST_Contains(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" % (a,self.epsg))
+            buildings = self.cur.fetchall() 
             
             nodesDict = {}
             eleDict = {}
             sidesDict = {}
             dictionary = {}
             
-            n = 0
+            print "Getting building output locations" 
+            for b in buildings:
+                #convert building polygon to a linestring
+                #-----------------------------------------------
+                #WHY? - PostGIS functions like ST_Distance - return the distance to the 
+                #Polygon as an area not as a line
+                i = b[1].find('POLYGON((')
+                j = b[1].find('))')
+                pts = b[1][i+9:j]
+                pts = pts.replace(',',' ').split()
+                i = 0
+                line_string = 'LINESTRING('                    
+                while i < len(pts)-2:
+                    line_string = line_string + "%s %s," % (pts[i], pts[i+1])
+                    i +=2
+                
+                line_string = line_string + "%s %s)" % (pts[i], pts[i+1])    
+   
 
-            
-            for f in footprints:
-                
-                
-                id = int(f[0])
-                p = self._offset_polygon2_(f[1])
+                id = int(b[0])
 
-                #iterate through the building footprint polygon list
-                            
-                #Get all the nodes contained in the building footprint polygon (offset)
-                self.cur.execute("SELECT n.id, ST_AsText(n.geom) FROM nodes AS n \
-                                WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) ORDER BY n.id;"
-                                % (p, self.epsg ))
+#                self.cur.execute("SELECT ST_Perimeter(b.geom) FROM buildings AS b \
+#                                        WHERE b.id = %s;" % (id))
+#
+#                perimeter = self.cur.fetchall()
+#                perimeter = perimeter[0]
                 
+                #GET all the nodes that make up the building, including both the interior and edge nodes
+                building_nodes = []
+                building_nodes_neighbours_dict = {}
+                
+                self.cur.execute("SELECT n.id, n.code, n.neighbours FROM nodes AS n, buildings AS b \
+                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND \
+                                        ST_DWithin(b.geom,n.geom,0.05) \
+                                        AND b.id = %s;" % (a,self.epsg,id))
+
                 r_nodes = self.cur.fetchall()
-    
-                #Get all the elements intersecting  the building footprint polygon (offset)
-                self.cur.execute("SELECT e.id, ST_AsText(e.geom) FROM elements AS e \
-                                WHERE ST_Intersects(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;" \
-                                % (p, self.epsg))
-                r_elements = self.cur.fetchall()
-
-                #Get all the sides contained in the building footprint polygon (offset)
-                self.cur.execute("SELECT s.id, ST_AsText(s.geom) FROM sides AS s\
-                                WHERE ST_Contains(ST_GeomFromText('%s',%s),s.geom) ORDER BY s.id;" \
-                                % (p, self.epsg))
+                for n in r_nodes:
+                    building_nodes.append(n[0])                
+                    building_nodes_neighbours_dict[n[0]] = n[2]            
+                
+                #GET the sides that make up the building edge - NOT interested in the interior sides
+                building_sides = []
+                building_sides_db = []
+                self.cur.execute("SELECT s.id, s.node_ids, geom FROM sides AS s \
+                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),s.geom) AND \
+                                        ST_DWithin(ST_GeomFromText('%s',%s),s.geom,0.05);" % (a,self.epsg,line_string,self.epsg))
 
                 r_sides = self.cur.fetchall()
-            
-
-                if( len(r_nodes) > 0 or len(r_elements) > 0 or len(r_sides) > 0 ):
-                    
-                    dictionary[id] = {'nodes': [], 'elements': [], 'sides': []}
-
-                    nodes = []
-                    for row in r_nodes: nodes.append(row[0])
-                    if r_nodes != []: dictionary[id]['nodes'] = nodes           #add to dictionary                   
-
-                    elements = []
-                    for row in r_elements: elements.append(row[0])
-                    if r_elements != []: dictionary[id]['elements'] = elements     #add to dictionary
-                   
-                    sides = []
-                    for row in r_sides: sides.append(row[0])
-                    if r_sides != []: dictionary[id]['sides'] = sides           #add to dictionary   
                 
-                n += 1
-                #self.conn.commit()
-            
+                #check to see if the side is actually part of the edge
+                for s in r_sides:
+                    node_ids = s[1]
+                    #only choose nodes which are part of the nodes list above (i.e. nodes on the buildings edge)
+                    if node_ids[0] in building_nodes and node_ids[1] in building_nodes:  
+                        n1_set = set(building_nodes_neighbours_dict[node_ids[0]])                        
+                        n2_set = set(building_nodes_neighbours_dict[node_ids[1]])
+                        
+                        #check if the side spans across the corner of the building (i.e. not actually a building side)
+                        matches = n1_set.intersection(n2_set)       
+                        matches.discard(0)
+                        print len(matches)
+                        if len(matches) == 1:
+                            building_sides.append(s[0])
+                            building_sides_db.append([s[0],s[2]])
+
+                for side in building_sides_db:
+                    #self.cur.execute("SELECT id,geom FROM sides WHERE id = %s;" % (id))
+                    #side = self.cur.fetchall()[0]
+                    
+                    self.cur.execute("INSERT INTO building_sides (id,geom) VALUES (%s,ST_Geometry('%s'));" % (side[0],side[1]))
+                
+                    
+                        
+                        
+                #Get all the elements that make up the building
+                #TODO
+                r_elements = []
+
+                if( len(building_nodes) > 0 or len(building_sides) > 0 ):
+                    
+                    dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2])}
+                    if(building_nodes != []):
+                        dictionary[id]['nodes'] = building_nodes           #add to dictionary                   
+                    if(building_sides != []):                    
+                        dictionary[id]['sides'] = building_sides           #add to dictionary 
+                    
+#                    nodes = []
+#                    for row in r_nodes: nodes.append(row[0])
+#                    if r_nodes != []: dictionary[id]['nodes'] = nodes           #add to dictionary                   
+#
+#                    elements = []
+#                    for row in r_elements: elements.append(row[0])
+#                    if r_elements != []: dictionary[id]['elements'] = elements     #add to dictionary
+#                   
+#                    sides = []
+#                    for row in r_sides: sides.append(row[0])
+#                    if r_sides != []: dictionary[id]['sides'] = sides           #add to dictionary   
+                
+            self.conn.commit()
             return dictionary
             
         else:
