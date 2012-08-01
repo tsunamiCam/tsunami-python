@@ -836,6 +836,10 @@ class RunNC:
             nodesAll = list(set(nodesAll))
             elementsAll = list(set(elementsAll))
             sidesAll = list(set(sidesAll))
+            
+            print "# elements = %s" % len(elementsAll)
+
+            
             #initialise arrays for entry into netcdf file
             nodes = zeros((len(dictionary),maxNodes))
             elements = zeros((len(dictionary),maxElements))

@@ -2650,6 +2650,16 @@ class GridPG:
         self.cur.execute("DROP TABLE IF EXISTS building_sides;")
         self.cur.execute("CREATE TABLE building_sides (id int4);")    
         self.cur.execute("SELECT AddGeometryColumn('building_sides', 'geom', %s, 'LINESTRING', 2);" % self.epsg) 
+
+        self.cur.execute("DROP TABLE IF EXISTS building_elements;")
+        self.cur.execute("CREATE TABLE building_elements (id int4);")    
+        self.cur.execute("SELECT AddGeometryColumn('building_elements', 'geom', %s, 'POLYGON', 2);" % self.epsg) 
+ 
+ 
+        self.cur.execute("DROP TABLE IF EXISTS building_nodes;")
+        self.cur.execute("CREATE TABLE building_nodes (id int4);")    
+        self.cur.execute("SELECT AddGeometryColumn('building_nodes', 'geom', %s, 'POINT', 2);" % self.epsg) 
+ 
         self.conn.commit()       
   
         a = self.get_area_by_id(area_id)        #get the area as a text object
@@ -2694,7 +2704,7 @@ class GridPG:
                 building_nodes = []
                 building_nodes_neighbours_dict = {}
                 
-                self.cur.execute("SELECT n.id, n.code, n.neighbours FROM nodes AS n, buildings AS b \
+                self.cur.execute("SELECT n.id, n.code, n.neighbours,n.geom FROM nodes AS n, buildings AS b \
                                         WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND \
                                         ST_DWithin(b.geom,n.geom,0.05) \
                                         AND b.id = %s;" % (a,self.epsg,id))
@@ -2702,7 +2712,9 @@ class GridPG:
                 r_nodes = self.cur.fetchall()
                 for n in r_nodes:
                     building_nodes.append(n[0])                
-                    building_nodes_neighbours_dict[n[0]] = n[2]            
+                    building_nodes_neighbours_dict[n[0]] = n[2]
+                    self.cur.execute("INSERT INTO building_nodes (id,geom) VALUES (%s,ST_Geometry('%s'));" % (n[0],n[3]))         
+   
                 
                 #GET the sides that make up the building edge - NOT interested in the interior sides
                 building_sides = []
@@ -2724,45 +2736,51 @@ class GridPG:
                         #check if the side spans across the corner of the building (i.e. not actually a building side)
                         matches = n1_set.intersection(n2_set)       
                         matches.discard(0)
-                        print len(matches)
                         if len(matches) == 1:
                             building_sides.append(s[0])
                             building_sides_db.append([s[0],s[2]])
 
-                for side in building_sides_db:
-                    #self.cur.execute("SELECT id,geom FROM sides WHERE id = %s;" % (id))
-                    #side = self.cur.fetchall()[0]
-                    
+                for side in building_sides_db:                    
                     self.cur.execute("INSERT INTO building_sides (id,geom) VALUES (%s,ST_Geometry('%s'));" % (side[0],side[1]))
                 
-                    
-                        
-                        
-                #Get all the elements that make up the building
-                #TODO
-                r_elements = []
+                
+                building_elements = []
+                
+                self.cur.execute("SELECT e.id, e.geom FROM elements AS e, buildings AS b \
+                        WHERE ST_DWithin(b.geom,e.geom,0.1) \
+                        AND b.id = %s;" % (id))
 
-                if( len(building_nodes) > 0 or len(building_sides) > 0 ):
+
+                r_elements = self.cur.fetchall()
+
+
+#                self.cur.execute("SELECT e.id, e.geom FROM elements AS e, buildings AS b \
+#                        WHERE ST_Contains(ST_GeomFromText('%s',%s),e.geom) AND \
+#                        ST_DWithin(b.geom,e.geom,0.1) \
+#                        AND b.id = %s;" % (a,self.epsg,id))
+
+                
+                for e in r_elements:
+                    building_elements.append(e[0])
+                    self.cur.execute("INSERT INTO building_elements (id,geom) VALUES (%s,ST_Geometry('%s'));" % (e[0],e[1]))
+
+                
+                if( len(building_nodes) > 0 or len(building_sides) > 0 or len(building_elements) > 0):
                     
                     dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2])}
+                    
                     if(building_nodes != []):
                         dictionary[id]['nodes'] = building_nodes           #add to dictionary                   
                     if(building_sides != []):                    
                         dictionary[id]['sides'] = building_sides           #add to dictionary 
-                    
-#                    nodes = []
-#                    for row in r_nodes: nodes.append(row[0])
-#                    if r_nodes != []: dictionary[id]['nodes'] = nodes           #add to dictionary                   
-#
-#                    elements = []
-#                    for row in r_elements: elements.append(row[0])
-#                    if r_elements != []: dictionary[id]['elements'] = elements     #add to dictionary
-#                   
-#                    sides = []
-#                    for row in r_sides: sides.append(row[0])
-#                    if r_sides != []: dictionary[id]['sides'] = sides           #add to dictionary   
+                    if(building_elements != []):                    
+                        dictionary[id]['elements'] = building_elements           #add to dictionary                     
+
                 
             self.conn.commit()
+            print "Nodes not currently added to output Request: Alter get_building_output_locations() in GridPG if required..."
+
+
             return dictionary
             
         else:
