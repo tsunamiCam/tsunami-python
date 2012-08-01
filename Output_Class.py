@@ -73,7 +73,6 @@ class ReadOutput:
         self.__init_buildings_dictionary__()
 
         #connect to the POSTGIS database
-        
         self.grid_pg = GridPG(grid_dbname=grid_dbname, epsg = grid_db_epsg) 
         self.slen = self.grid_pg.get_side_lengths()
 
@@ -138,10 +137,13 @@ class ReadOutput:
         speedMax_dict = {}
         speedAvg_dict = {}
         speedAvgWeighted_dict = {}
-
+        etaAvg_dict = {}
+        
         speedAvgMax = zeros(len(self.buildings_dict))
         speedMaxMax = zeros(len(self.buildings_dict)) 
         speedAvgMaxWeighted = zeros(len(self.buildings_dict))      #speed weighted by the side length
+
+        etaAvgMax = zeros(len(self.buildings_dict))
 
         
         sides_time = self.building_sides_grp.variables['time'][:]
@@ -151,6 +153,7 @@ class ReadOutput:
             #get all the UV results for the current time step            
             sidesU = self.building_sides_grp.variables['uv'][:,i,0]
             sidesV = self.building_sides_grp.variables['uv'][:,i,1]
+            nodesEta = self.building_nodes_grp.variables['eta'][:,i]
             j = 0
             print i
             #get the MAX flow speed around each build for the current time step
@@ -161,6 +164,7 @@ class ReadOutput:
                     speedAvg_dict[id] = {'sides': []}
                     speedAvgWeighted_dict[id] = {'sides': []}
     
+                    etaAvg_dict[id] = {'nodes': []}
                     
                 nodes = self.buildings_dict[id]['nodes']
                 elements = self.buildings_dict[id]['elements']
@@ -175,6 +179,25 @@ class ReadOutput:
                 speedAvg = 0
                 speedAvgWeighted = 0
 
+                etaAvg = 0
+
+                
+                for n in nodes:
+                    if n != 0:
+                        eta = nodesEta[self.node_ids_dict[n]]
+                        etaAvg = etaAvg + eta
+                        if(eta>100):
+                            print "problem!!"
+                            sys.exit()
+
+                
+                print etaAvg
+                etaAvg = etaAvg/nnodes
+                etaAvg_dict[id]['nodes'].append(etaAvg)
+                if (etaAvg_dict > etaAvgMax[j]):
+                    etaAvgMax[j] = etaAvg
+                
+                
                 for s in sides:
                     if s != 0:
                         u = sidesU[self.side_ids_dict[s]]
@@ -183,7 +206,7 @@ class ReadOutput:
                         speed = math.sqrt(u*u + v*v)
                         speedAvg = speedAvg + speed
                         #slen is degrees!!! must fix
-                        speedAvgWeighted = speedAvgWeighted + speed/self.slen[s-1]
+                        speedAvgWeighted = speedAvgWeighted + speed*(self.slen[s-1]/perimeter)
                         if speed > speedMax:
                             speedMax = speed
                 speedMax_dict[id]['sides'].append(speedMax)
@@ -207,8 +230,10 @@ class ReadOutput:
                 
                         
             i+=1
-            
-        return speedAvgMax, speedMaxMax,speedAvgMaxWeighted
+        print etaAvgMax
+        return speedAvgMax, speedMaxMax,speedAvgMaxWeighted,etaAvgMax
+        
+        
         #return array(speedMax_dict[id]['sides']), array(speedAvg_dict[id]['sides']), sides_time
                  
                     
