@@ -884,6 +884,8 @@ class BuildingsPG:
             return n
 
 
+
+
     def grid_buildings(self, filename, bounding_area_id, epsgOUT,  holes = True):
      
         '''
@@ -1041,6 +1043,181 @@ class BuildingsPG:
     
         
         outfile.close()
+
+
+
+    def grid_buildings2(self, filename, bounding_area_id,outer_area_id,inner_area_id, epsgOUT,  holes = True):
+     
+        '''
+        Create a grid with the buildings which area inside outer area
+        
+        INPUT: filename - The name of the bounding polygon (i.e. 'name' 
+                                    in table 'areas')
+           holes: True (default) if buildings are to be holes, False if buildings are
+                  to be gridded
+            
+           epsgOUT:  the srs of the Triangle.c mesh
+            
+        
+        This function extracts the buildings that lie within the input bounding polygon
+        (boundary_polygon_name) and sets up triangle.c control files.
+        '''
+        
+        outfile = open(filename, "w")    
+
+        
+        self.cur.execute("SELECT geom FROM areas WHERE id='%s';" % (bounding_area_id))        
+        boundingArea = self.cur.fetchall()[0][0]
+        
+        self.cur.execute("SELECT ST_AsText(geom) FROM areas WHERE id='%s';" % (bounding_area_id))        
+        boundingPolyTXT = self.cur.fetchall() 
+        boundingPolyTXT = boundingPolyTXT[0][0]
+
+        self.cur.execute("SELECT geom FROM areas WHERE id='%s';" % (outer_area_id))        
+        outerArea = self.cur.fetchall()[0][0]
+        
+        self.cur.execute("SELECT geom FROM areas WHERE id='%s';" % (inner_area_id))        
+        innerArea = self.cur.fetchall()[0][0]
+        
+        
+        self.cur.execute("SELECT b.id, ST_AsText(b.geom), ST_AsText(ST_PointOnSurface(b.geom)) FROM buildings AS b \
+                        WHERE \
+                        (ST_Contains('%s',b.geom) AND NOT ST_Contains('%s',b.geom)) \
+                        OR \
+                        ST_Contains('%s',b.geom) \
+                        ORDER BY b.id;" % (boundingArea, outerArea, innerArea))
+        buildings = self.cur.fetchall()
+
+
+       #get the building footprints and a point inside for all buildings that
+        #are inside the bounding polygon
+   
+        #NOTE: ERROR in ST_PointOnSurface() function due to self intersection polygon in the buildings table
+        #see: http://postgis.refractions.net/pipermail/postgis-users/2010-August/027487.html
+        #fixed problem by deleting the invalid geometry.
+
+         
+        intersectingBuildings = 0
+        for poly in buildings: #check if there are any intersecting buildings   
+            self.cur.execute("SELECT b.id FROM buildings AS b \
+                            WHERE ST_Intersects(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" \
+                            % (poly[1], self.epsg))
+            intersect = self.cur.fetchall()
+            if len(intersect) > 1:
+                print "Building = %s intersects Building = %s" % (poly[0],intersect[1])
+                intersectingBuildings = 1
+
+        buildingsList = []
+        buildingsPtsInside = []
+
+        #Convert the building polygons from TXT to python list
+        for b in buildings:
+            
+            i = b[2].find('POINT(')
+            j = b[2].find(')')
+            pointInside = b[2][i+6:j]
+            pointInside = pointInside.replace(',',' ').split()
+            buildingsPtsInside.append(pointInside)            
+            i = b[1].find('POLYGON((')
+            j = b[1].find('))')
+            pts = b[1][i+9:j]
+            pts = pts.replace(',',' ').split()
+            i = 0
+            polygon = []
+            while i < len(pts):
+                polygon.append([float(pts[i]), float(pts[i+1])])
+                i += 2      
+            polygon.pop()                                                           #remove repeated last item in building polygons
+            polygon = self._convert_points_(polygon,self.epsg,epsgOUT)              #convert to target SRS
+            buildingsList.append(polygon)
+
+        buildingsPtsInside = self._convert_points_(buildingsPtsInside,self.epsg,epsgOUT) 
+        #convert the bounding polygon from TXT to python list
+        i = boundingPolyTXT.find('POLYGON((')
+        j = boundingPolyTXT.find('))')
+        pts = boundingPolyTXT[i+9:j]
+        pts = pts.replace(',',' ').split()       
+
+        i=0
+        boundingPoly = []
+        while i < len(pts):
+            boundingPoly.append([float(pts[i]), float(pts[i+1])])
+            i += 2  
+        
+        boundingPoly.pop()                                                          #remove repeated last item in polygon
+        boundingPoly = self._convert_points_(boundingPoly,self.epsg,epsgOUT)        #convert to target SRS
+
+      
+        numVerticies = len(boundingPoly)
+        numHoles = len(buildingsList)
+
+        for b in buildingsList:
+            numVerticies = numVerticies + len(b)
+        
+        outfile.write("%s 2 0 1\n" % (str(numVerticies)))
+        
+        
+        segments = []
+        #write the vertices in the building and bounding polygon lists
+        i = 1
+        for pt in boundingPoly:
+            #ptYshift = float(pt[1]) - 5000000
+            outfile.write("%s   %s    %s   1\n" % (str(i), pt[0], pt[1]))
+            if i != len(boundingPoly):
+                segments.append([i,i+1,1])
+                
+            else:
+                index = i - len(boundingPoly) + 1
+                segments.append([i,index, 1])
+            
+            i += 1
+    
+        polyIndex = 2
+        for poly in buildingsList:
+            lengthPoly = len(poly)
+            j = 1
+            for pt in poly:
+                #ptYshift = float(pt[1]) - 5000000
+                outfile.write("%s   %s    %s    %s\n" % (str(i), pt[0], pt[1], str(polyIndex)))
+               
+                if j != lengthPoly:
+                    segments.append([i,i+1,polyIndex])
+                    
+                else:
+                    index = i - lengthPoly + 1
+                    segments.append([i,index,polyIndex])
+                
+                j += 1
+                i += 1
+            
+            polyIndex += 1            
+        
+        #write the segments
+        outfile.write("%s 1\n" % (str(len(segments))))
+        i = 1
+        for seg in segments:
+            outfile.write("%s   %s   %s   %s\n" % (str(i), str(seg[0]), str(seg[1]), str(seg[2])))
+            i += 1
+    
+    
+        #write the holes
+        if(holes == True):
+            outfile.write("%s\n" % (str(len(buildingsPtsInside))))
+            i = 1
+            for pt in buildingsPtsInside:
+                #ptYshift = float(pt[1]) - 5000000
+                outfile.write("%s   %s   %s\n" % (str(i), str(pt[0]), str(pt[1])))
+                i += 1
+        else:
+            outfile.write("0\n")
+    
+    
+        
+        outfile.close()
+
+
+
+
 
 
     def copy_record(self,tablename = 'areas',id = 1):

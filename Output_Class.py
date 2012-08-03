@@ -167,9 +167,12 @@ class ReadOutput:
         etaMaxMax['nodes'] = zeros(len(self.buildings_dict)) 
         
         time = self.building_sides_grp.variables['time'][:]
-        i = 0
+
+        iMIN = 0
+        iMAX = len(time)
+        i = iMIN
         #for step in time:
-        while i < len(time):
+        while i < iMAX:
             #get all the UV results for the current time step            
             sidesU = self.building_sides_grp.variables['uv'][:,i,0]
             sidesV = self.building_sides_grp.variables['uv'][:,i,1]
@@ -186,7 +189,7 @@ class ReadOutput:
             #get the MAX flow speed around each build for the current time step
             for building in self.buildings_dict.iteritems():      
                 id = building[0]
-                if i == 0:
+                if i == iMIN:
                     speedMax_dict[id] = {'nodes': [],'elements': [],'sides': []}
                     speedAvg_dict[id] = {'nodes': [],'elements': [],'sides': []}
                     speedAvgWeighted_dict[id] = {'nodes': [],'elements': [],'sides': []}    
@@ -214,6 +217,7 @@ class ReadOutput:
                 speedAvg = 0
                 speedAvgWeighted = 0
                 etaAvg = 0
+                etaMax = 0
                 
                 for n in nodes:
                     if n != 0:
@@ -221,32 +225,38 @@ class ReadOutput:
                         u = nodesU[self.node_ids_dict[n]]
                         v = nodesV[self.node_ids_dict[n]]
 
-
-                        if u > 20: u= 0 
-                        if v > 20: v= 0 
-
                         speed = math.sqrt(u*u + v*v)
                         speedAvg = speedAvg + speed                      
 
+                        if speed > speedMax:
+                            speedMax = speed
+
                         eta = nodesEta[self.node_ids_dict[n]]
-                        if eta > 20: eta= 0                     
-
                         etaAvg = etaAvg + eta
+        
+                        if eta > etaMax:
+                            etaMax = eta
                         
-
-
-
                 speedAvg = speedAvg/nnodes
                 speedAvg_dict[id]['nodes'].append(speedAvg)
                 if (speedAvg > speedAvgMax['nodes'][j]):
                     speedAvgMax['nodes'][j] = speedAvg
+
+                speedMax_dict[id]['nodes'].append(speedMax)
+                if (speedMax > speedMaxMax['nodes'][j]):
+                    speedMaxMax['nodes'][j] = speedMax   
                 
                 etaAvg = etaAvg/nnodes
                 etaAvg_dict[id]['nodes'].append(etaAvg)
                 if (etaAvg > etaAvgMax['nodes'][j]):
                     etaAvgMax['nodes'][j] = etaAvg
 
-                
+                etaMax_dict[id]['nodes'].append(etaMax)                        
+                if (etaMax > etaMaxMax['nodes'][j]):
+                    etaMaxMax['nodes'][j] = etaMax
+
+
+             
                 #-----------------------------------------------------------------------------------
                 #SIDES OUTPUT
                 #-----------------------------------------------------------------------------------
@@ -273,22 +283,16 @@ class ReadOutput:
                         if speed > speedMax:
                             speedMax = speed
                             
-                speedMax_dict[id]['sides'].append(speedMax)
-                speedAvg_dict[id]['sides'].append(speedAvg/nsides)
+                speedAvg = speedAvg/nsides
                 speedAvgWeighted = (speedAvgWeighted/nsides)*perimeter
-                
+
+                speedMax_dict[id]['sides'].append(speedMax)
+                speedAvg_dict[id]['sides'].append(speedAvg)                
                 speedAvgWeighted_dict[id]['sides'].append(speedAvgWeighted)
                 
-                speedAvg = speedAvg/nsides
-                
-                if (speedAvg > speedAvgMax['sides'][j]):
-                    speedAvgMax['sides'][j] = speedAvg
-                                    
-                if (speedAvgWeighted > speedAvgMaxWeighted['sides'][j]):
-                    speedAvgMaxWeighted['sides'][j] = speedAvgWeighted
-                    
-                if (speedMax > speedMaxMax['sides'][j]):
-                    speedMaxMax['sides'][j] = speedMax
+                if (speedAvg > speedAvgMax['sides'][j]): speedAvgMax['sides'][j] = speedAvg
+                if (speedAvgWeighted > speedAvgMaxWeighted['sides'][j]): speedAvgMaxWeighted['sides'][j] = speedAvgWeighted
+                if (speedMax > speedMaxMax['sides'][j]): speedMaxMax['sides'][j] = speedMax
                     
                     
                 #-----------------------------------------------------------------------------------
@@ -325,7 +329,7 @@ class ReadOutput:
                 
                         
             i+=1
-        return speedMaxMax,etaAvgMax,etaMaxMax,etaAvg_dict[500]['elements'],etaAvg_dict[500]['nodes'], time
+        return speedAvgMax,speedMaxMax,etaAvgMax,etaMaxMax,etaAvg_dict[500]['elements'],etaAvg_dict[500]['nodes'], time[iMIN:iMAX]
         
         
         #return array(speedMax_dict[id]['sides']), array(speedAvg_dict[id]['sides']), sides_time
