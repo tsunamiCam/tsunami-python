@@ -122,8 +122,71 @@ class ReadOutput:
             self.element_ids_dict[id] = i
             i+=1 
 
-
+    def get_output_at_building(self,id):
         
+        '''
+        Given the building id, return the uv and eta data associated with building
+        '''
+        #Get the elements,sides and nodes that make up the building
+        nodes = self.buildings_dict[id]['nodes']
+        elements = self.buildings_dict[id]['elements']
+        sides = self.buildings_dict[id]['sides']
+        perimeter = self.buildings_dict[id]['perimeter']
+
+        nsides = len(sides)
+        nnodes = len(nodes)
+        nelements = len(elements)
+        
+        speedMax_dict = {}
+        etaMax_dict = {}
+        speedMax_dict['nodes'] = []
+        speedMax_dict['elements'] = []
+        speedMax_dict['sides'] = []
+        etaMax_dict['nodes'] = []
+        etaMax_dict['elements'] = []
+        etaMax_dict['sides'] = []
+        
+
+        time = self.building_nodes_grp.variables['time'][:]
+
+        iMIN = 0
+        iMAX = len(time)
+        i = iMIN
+        #for step in time:
+        while i < iMAX:
+            speedMax = 0
+            etaMax = 0
+    
+            nodesU = self.building_nodes_grp.variables['uv'][:,i,0]
+            nodesV = self.building_nodes_grp.variables['uv'][:,i,1]
+            nodesEta = self.building_nodes_grp.variables['eta'][:,i]
+    
+            #get the node output
+            for n in nodes:
+                if n != 0:
+                    
+                    u = nodesU[self.node_ids_dict[n]]
+                    v = nodesV[self.node_ids_dict[n]]
+    
+                    speed = math.sqrt(u*u + v*v)
+                    #speedAvg = speedAvg + speed                      
+    
+                    if speed > speedMax:
+                        speedMax = speed
+    
+                    eta = nodesEta[self.node_ids_dict[n]]
+                    #etaAvg = etaAvg + eta
+    
+                    if eta > etaMax:
+                        etaMax = eta
+            
+            speedMax_dict['nodes'].append(speedMax)
+            etaMax_dict['nodes'].append(etaMax)
+            i+=1
+        
+        return speedMax_dict, etaMax_dict,time              
+
+
     def get_building_output(self,id):
         '''
         Given the building id, return the uv and eta data associated with building
@@ -329,7 +392,7 @@ class ReadOutput:
                 
                         
             i+=1
-        return speedAvgMax,speedMaxMax,etaAvgMax,etaMaxMax,etaAvg_dict[500]['elements'],etaAvg_dict[500]['nodes'], time[iMIN:iMAX]
+        return speedAvgMax,speedMaxMax,etaAvgMax,etaMaxMax,etaMax_dict[500]['elements'],etaMax_dict[500]['nodes'], time[iMIN:iMAX]
         
         
         #return array(speedMax_dict[id]['sides']), array(speedAvg_dict[id]['sides']), sides_time
