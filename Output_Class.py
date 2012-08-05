@@ -70,6 +70,9 @@ class ReadOutput:
         self.node_ids_dict = {}
         self.element_ids_dict = {}
         
+        self.elevation = self.domain_grp.variables['xyz'][:,2]
+
+        
         self.__init_buildings_dictionary__()
 
         #connect to the POSTGIS database
@@ -100,8 +103,18 @@ class ReadOutput:
         
         i = 0
         for id in building_id:    
+
+            #get the average elevation of the building
+            zAvg = 0
+            for n in building_nodes[i]:
+                self.elevation[n-1]
+                zAvg = zAvg + self.elevation[n-1]    
+            zAvg = zAvg/len(building_nodes[i]) 
+            
             self.buildings_dict[id] = {'nodes': building_nodes[i].tolist(), 'elements': building_elements[i].tolist(),
-                                        'sides': building_sides[i].tolist(), 'perimeter': building_perimeter[i]}
+                                        'sides': building_sides[i].tolist(), 'perimeter': building_perimeter[i], 'elevation':zAvg}
+            
+
             i+=1
         
         side_ids = self.building_sides_grp.variables['id'][:]
@@ -146,6 +159,9 @@ class ReadOutput:
         etaMax_dict['elements'] = []
         etaMax_dict['sides'] = []
         
+        etaMaxMax = 0
+        speedMaxMax = 0
+
 
         time = self.building_nodes_grp.variables['time'][:]
 
@@ -156,6 +172,9 @@ class ReadOutput:
         while i < iMAX:
             speedMax = 0
             etaMax = 0
+            uAll = 0
+            vAll = 0
+            uvLIST = []
     
             nodesU = self.building_nodes_grp.variables['uv'][:,i,0]
             nodesV = self.building_nodes_grp.variables['uv'][:,i,1]
@@ -167,6 +186,11 @@ class ReadOutput:
                     
                     u = nodesU[self.node_ids_dict[n]]
                     v = nodesV[self.node_ids_dict[n]]
+                    
+                    uvLIST.append([u,v])
+                    
+                    uAll = uAll + u
+                    vAll = vAll + v
     
                     speed = math.sqrt(u*u + v*v)
                     #speedAvg = speedAvg + speed                      
@@ -174,17 +198,59 @@ class ReadOutput:
                     if speed > speedMax:
                         speedMax = speed
     
-                    eta = nodesEta[self.node_ids_dict[n]]
+                    eta = nodesEta[self.node_ids_dict[n]] - self.elevation[n-1]
                     #etaAvg = etaAvg + eta
     
                     if eta > etaMax:
                         etaMax = eta
+                        
+            #compute the unit vector of [uAll,vAll]
+            ui = uAll/math.sqrt(uAll*uAll + vAll*vAll)
+            vi = vAll/math.sqrt(uAll*uAll + vAll*vAll)
+            #    print "%s     %s" % (ui,vi)
             
+            #print math.acos(ui)*180/math.pi
+            
+            k = 0
+            mUi = 0
+            mVi = 0
+            kMax1 = 0
+            kMax2 = 0
+
+            while k < len(uvLIST):
+                u = uvLIST[k][0]
+                v = uvLIST[k][1]
+                uvLIST[k][0] = u*ui + v*vi
+                uvLIST[k][1] = -u*vi + v*ui
+                
+                if abs(uvLIST[k][0]) > abs(mUi):
+                    mUi = uvLIST[k][0]
+                    kMax1 = k
+                if abs(uvLIST[k][1]) > abs(mVi):
+                    mVi = uvLIST[k][1]
+                    kMax2 = k
+
+                
+                k+=1    
+            
+            print "%s     %s   %s   %s     %s" % (math.acos(ui)*180/math.pi, mUi,mVi, nodes[kMax1],nodes[kMax2])
+                
+                
+                
+                    
+                
+                
+
             speedMax_dict['nodes'].append(speedMax)
+            if speedMax > speedMaxMax:
+                speedMaxMax = speedMax
+                
             etaMax_dict['nodes'].append(etaMax)
+            if etaMax > etaMaxMax:
+                etaMaxMax = etaMax
             i+=1
         
-        return speedMax_dict, etaMax_dict,time              
+        return speedMax_dict, etaMax_dict,time, etaMaxMax, speedMaxMax            
 
 
     def get_building_output(self,id):
@@ -393,58 +459,107 @@ class ReadOutput:
                         
             i+=1
         return speedAvgMax,speedMaxMax,etaAvgMax,etaMaxMax,etaMax_dict[500]['elements'],etaMax_dict[500]['nodes'], time[iMIN:iMAX]
+ 
+ 
+ 
+ 
+    def output_row_histogram(self,row_number):
+        '''
+        Shielding TEST output
+        
+        Given a row number, get the max speed and eta values for each building in the row
+        
+        AREA ID: (in order of building row)
+        24
+        27
+        28
+        29
+        30
+        31
+        32
+        33
+        34
+        37
+        36
+        '''
+        
+        id1 = 0
+        id2 = 0
+        etaMaxMaxLIST = []
+        speedMaxMaxLIST = []
+        if row_number == 1:
+            id1 = 24
+            id2 = 27   
+        elif row_number == 2:
+            id1 = 27
+            id2 = 28
+        elif row_number == 3:
+            id1 = 28
+            id2 = 29
+        elif row_number == 4:
+            id1 = 29
+            id2 = 30        
+        elif row_number == 5:
+            id1 = 30
+            id2 = 31
+        elif row_number == 6:
+            id1 = 31
+            id2 = 32
+        elif row_number == 7:
+            id1 = 32
+            id2 = 33            
+        elif row_number == 8:
+            id1 = 33
+            id2 = 34
+        elif row_number == 9:
+            id1 = 34
+            id2 = 37        
+        elif row_number == 10:
+            id1 = 37
+            id2 = 36        
+        else:
+            print "Invalid Row number..."    
+            return
+        
+        self.grid_pg.cur.execute("SELECT geom FROM areas WHERE id='%s';" % (id1))        
+        a1 = self.grid_pg.cur.fetchall()[0][0]
         
         
-        #return array(speedMax_dict[id]['sides']), array(speedAvg_dict[id]['sides']), sides_time
-                 
-                    
+        self.grid_pg.cur.execute("SELECT geom FROM areas WHERE id='%s';" % (id2))        
+        a2 = self.grid_pg.cur.fetchall()[0][0]
+        
                 
+        self.grid_pg.cur.execute("SELECT b.id FROM buildings AS b \
+                        WHERE \
+                        (ST_Contains('%s',b.geom) AND NOT ST_Contains('%s',b.geom)) \
+                        ORDER BY b.id;" % (a1, a2))
+        buildings = self.grid_pg.cur.fetchall()
+        
+        print "Number of buildings in row = %s" % len(buildings)
+        for b in buildings:
+            id = b[0]
+            speedMax_dict, etaMax_dict,time, etaMaxMax, speedMaxMax = self.get_output_at_building(id)
+            etaMaxMaxLIST.append(etaMaxMax)
+            speedMaxMaxLIST.append(speedMaxMax)
+        
+        spdAvg = 0
+        for spd in speedMaxMaxLIST:
+            spdAvg = spdAvg + spd
 
-                    
-                
-                
+        spdAvg = spdAvg/len(speedMaxMaxLIST)
+
+        
+        etaAvg = 0
+        for eta in etaMaxMaxLIST:
+            etaAvg = etaAvg + eta
             
+        etaAvg = etaAvg/len(etaMaxMaxLIST)
+    
+        
+        print "Row ID = %s, Speed Avg = %s, ETA Avg = %s " % (row_number, etaAvg, spdAvg)
+        
+        return spdAvg, etaAvg
 
-            
-                       
-#            n = row[1]['nodes'] 
-#            e = row[1]['elements']
-#            s = row[1]['sides']
-#            perimeter.append(row[1]['perimeter'])
-#            nodesAll.extend(n)
-#            elementsAll.extend(e)
-#            sidesAll.extend(s)
-#            if maxNodes < len(n): maxNodes = len(n)
-#            if maxElements < len(e): maxElements = len(e)
-#            if maxSides < len(s): maxSides = len(s)
-
-
-
-        #output_dict = {'nodes': {}, 'elements': {}, 'sides':{}}
-
-                
-        #get the time steps array from the NETCDF file
-        #sides_time = self.building_sides_grp.variables['time'][:]
-
-            
-
-
-#
-#        i = 0
-#        for s in sides:
-#            if s == 0:
-#                break
-#            else:
-#                uv = self.building_sides_grp.variables['uv'][self.side_ids_dict[s]]
-#                output_dict['sides'][s] = uv
-                
-
-                
-                
-        #return output_dict
-                
-
-            
         
         
         
