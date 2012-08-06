@@ -120,7 +120,7 @@ class GridClass:
         cam = 1 #TODO
 
 
-    def get_building_output_locations(self,area_id):
+    def get_building_output_locations(self,area_id,holes=True):
         """
         Get id's of the nodes, elements and sides that are inside the buildings polygons
         
@@ -129,9 +129,15 @@ class GridClass:
         
         
         """ 
-        dictionary = self.grid_pg.get_building_output_locations(area_id)
+        dictionary = self.grid_pg.get_building_output_locations(area_id,holes)
         return dictionary
+
+    def init_building_output_tables(self):
+        """
         
+        """
+        self.grid_pg.init_building_output_tables()
+
     def get_element_output_locations(self, xy, epsgIN):
         """
         Given a list of points [x,y], return a list of ids corresponding to the element that 
@@ -243,19 +249,7 @@ class GridClass:
 	
 	
 	
-	
-    def get_elements_in_buildings(self,area_id = 0):
-		"""
-		Get all the elements inside a given area and inside the building polygons.  If area_id = 0, return all elements
-		
-		area_id - the id (in the postgis table) of the area
-		
-		
-		"""
-		return self.grid_pg.get_elements_in_buildings(area_id)
-	
-	
-    def get_elements_in_buildings2(self,area_id = 0):
+    def get_elements_inside_buildings(self,area_id = 0):
         """
         Get all the elements inside a given area and inside the building polygons.  If area_id = 0, return all elements
         
@@ -263,7 +257,7 @@ class GridClass:
         
         
         """
-        return self.grid_pg.get_elements_in_buildings2(area_id)	
+        return self.grid_pg.get_elements_inside_buildings(area_id)	
 	
     
     def get_nodes_at_building_edges(self,area_id = 0):
@@ -2227,88 +2221,27 @@ class GridPG:
 
 
 
-
-    def get_elements_in_buildings(self,area_id = 0):
+    def get_elements_inside_buildings(self,area_id = 0):
         """
         Get all the elements corresponding to the buildings that are with the given area polygon.
         
         area_id - the id (in the postgis table) of the area that the buildings of interest are inside
 
         
+
         """
         
-        elements = []
-        
-        if area_id == 0:
-        	#search the entire domain
-			#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
-			self.cur.execute("SELECT e.id, e.code FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) ORDER BY e.id;" )
-			r_elements = self.cur.fetchall()
-			
-			for el in r_elements:
-				elements.append([el[0],el[1]])
-				        	
-        	
-        else:
-			a = self.get_area_by_id(area_id)        #get the area as a text object
-			if (a != ""):                           #check if a VALID area geometry has been found in areas table       
-	
-				#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
-				self.cur.execute("SELECT e.id, e.code FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) AND ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;"  % (a,self.epsg) )
-				r_elements = self.cur.fetchall()
-				
-				for el in r_elements:
-					elements.append([el[0],el[1]])
+        self.cur.execute("DROP TABLE IF EXISTS drag_elements;")
+        self.cur.execute("CREATE TABLE drag_elements (id int4);")    
+        self.cur.execute("SELECT AddGeometryColumn('drag_elements', 'geom', %s, 'POLYGON', 2);" % self.epsg) 
+        self.conn.commit()       
 
-				#SELECT all the elements intersecting  the building footprint polygon (i.e.b offset by -0.1)
-				self.cur.execute("SELECT e.id, e.code FROM elements AS e, buildings AS b WHERE ST_Contains(b.geom,e.geom) AND ST_Intersects(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;"  % (a,self.epsg) )
-				r_elements = self.cur.fetchall()
-				
-				for el in r_elements:
-					elements.append([el[0],el[1]])
-
-				'''
-				self.cur.execute("SELECT e.id, e.code FROM elements AS e, buildings AS b WHERE ST_Intersects(b.geom,e.geom) ORDER BY e.id;")
-				r_elements = self.cur.fetchall()
-				'''
-					
-			else:
-				print "ERROR: Invalid area id selected"
-				return elements
-        	
-        return elements
-
-
-    def get_elements_in_buildings2(self,area_id = 0):
-        """
-        Get all the elements corresponding to the buildings that are with the given area polygon.
-        
-        area_id - the id (in the postgis table) of the area that the buildings of interest are inside
-
-        
-        """
-        
         elements = []
         
         if area_id == 0:
             #search the entire domain
                 
-            #SELECT all the buildings that are inside the domain 
-            self.cur.execute("SELECT id, ST_AsText(geom) FROM buildings;")
-            buildings = self.cur.fetchall() 
-
-            for b in buildings:
-                id = int(b[0])
-                p = self._offset_polygon2_(b[1],0.1)
-            
-                #SELECT all the elements intersecting  the building footprint polygon (i.e. b offset by -0.1)
-                self.cur.execute("SELECT e.id, e.code FROM elements AS e \
-                                    WHERE ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;" \
-                                    % (p, self.epsg))
-                r_elements = self.cur.fetchall()
-            
-                for el in r_elements:
-                    elements.append([el[0],el[1]])
+            print "Get_elements_inside_buildings: Invalide area_id = 0"
 
 
                             
@@ -2326,19 +2259,34 @@ class GridPG:
                     id = int(b[0])
                     p = self._offset_polygon2_(b[1],0.1)
                 
-                    #SELECT all the elements intersecting  the building footprint polygon (i.e. b offset by -0.1)
-                    self.cur.execute("SELECT e.id, e.code FROM elements AS e \
-                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;" \
-                                        % (p, self.epsg))
-                    r_elements = self.cur.fetchall()
                 
+                    #SELECT all the elements intersecting  the building footprint polygon (i.e. b offset by -0.1)
+#                    self.cur.execute("SELECT e.id, e.code,geom FROM elements AS e \
+#                                        WHERE ST_Contains(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;" \
+#                                        % (p, self.epsg))
+
+                     
+
+                    self.cur.execute("SELECT e.id, e.code,e.geom,e.node_ids FROM elements AS e, buildings AS b \
+                                        WHERE ST_DWithin(b.geom,e.geom,0.05) \
+                                        AND ST_Contains(b.geom,ST_Centroid(e.geom)) \
+                                        AND b.id = %s \
+                                        ORDER BY e.id;" % (id)) 
+                    
+                    r_elements = self.cur.fetchall()
+                                    
                     for el in r_elements:
                         elements.append([el[0],el[1]])
+                        self.cur.execute("INSERT INTO drag_elements (id,geom) VALUES (%s,ST_Geometry('%s'));" % (el[0],el[2]))
+
+                        
                         
             else:
                 print "ERROR: Invalid area id selected"
                 return elements
-            
+        
+        self.conn.commit()       
+
         return elements
 
 
@@ -2474,8 +2422,8 @@ class GridPG:
             nodes_all.append([n[0],n[1][0],n[1][1],n[2],n[1][2],n[3]])
             
              
-        #for n in nodes_at_buildings:
-        #    nodes_all[n[0]-1][3] = 2
+        for n in nodes_at_buildings:
+            nodes_all[n[0]-1][3] = 2
         
         
         print "Domain Size of Nodes = %s" % len(nodes_all)
@@ -2633,19 +2581,13 @@ class GridPG:
 				return elements
 			
 		return elements
-
-    def get_building_output_locations(self,area_id):
+    
+    def init_building_output_tables(self):
         """
-        For each building polygon get id's of the nodes, elements and sides that are inside it
         
-        area_id: id of the area where building output is requested
         
-        Returns: a dictionary of sides,elements and nodes corresponding to each footprint
         
-        TODO: get elements that make up the footprint
-        
-        """                     
-
+        """
         
         self.cur.execute("DROP TABLE IF EXISTS building_sides;")
         self.cur.execute("CREATE TABLE building_sides (id int4);")    
@@ -2660,7 +2602,20 @@ class GridPG:
         self.cur.execute("CREATE TABLE building_nodes (id int4);")    
         self.cur.execute("SELECT AddGeometryColumn('building_nodes', 'geom', %s, 'POINT', 2);" % self.epsg) 
  
-        self.conn.commit()       
+        self.conn.commit()            
+        
+
+    def get_building_output_locations(self,area_id,holes=True):
+        """
+        For each building polygon get id's of the nodes, elements and sides that are inside it
+        
+        area_id: id of the area where building output is requested
+        
+        Returns: a dictionary of sides,elements and nodes corresponding to each footprint
+        
+        TODO: get elements that make up the footprint
+        
+        """                        
   
         validArea = False
         if area_id == 0:
@@ -2706,8 +2661,8 @@ class GridPG:
                 building_nodes_neighbours_dict = {}
                 
                 self.cur.execute("SELECT n.id, n.code, n.neighbours,n.geom FROM nodes AS n, buildings AS b \
-                                        WHERE ST_DWithin(b.geom,n.geom,0.05) \
-                                        AND b.id = %s;" % (id))
+                                            WHERE ST_DWithin(b.geom,n.geom,0.05) \
+                                            AND b.id = %s;" % (id))
 
                 r_nodes = self.cur.fetchall()
                 for n in r_nodes:
@@ -2715,39 +2670,62 @@ class GridPG:
                     building_nodes_neighbours_dict[n[0]] = n[2]
                     self.cur.execute("INSERT INTO building_nodes (id,geom) VALUES (%s,ST_Geometry('%s'));" % (n[0],n[3]))         
    
-                
-                #GET the sides that make up the building edge - NOT interested in the interior sides
+
                 building_sides = []
                 building_sides_db = []
-                self.cur.execute("SELECT s.id, s.node_ids, geom FROM sides AS s \
-                                        WHERE ST_DWithin(ST_GeomFromText('%s',%s),s.geom,0.05);" % (line_string,self.epsg))
-
-                r_sides = self.cur.fetchall()
                 
-                #check to see if the side is actually part of the edge
-                for s in r_sides:
-                    node_ids = s[1]
-                    #only choose nodes which are part of the nodes list above (i.e. nodes on the buildings edge)
-                    if node_ids[0] in building_nodes and node_ids[1] in building_nodes:  
-                        n1_set = set(building_nodes_neighbours_dict[node_ids[0]])                        
-                        n2_set = set(building_nodes_neighbours_dict[node_ids[1]])
-                        
-                        #check if the side spans across the corner of the building (i.e. not actually a building side)
-                        matches = n1_set.intersection(n2_set)       
-                        matches.discard(0)
-                        if len(matches) == 1:
-                            building_sides.append(s[0])
-                            building_sides_db.append([s[0],s[2]])
+                if holes == True:
+                    #GET the sides that make up the building edge - NOT interested in the interior sides
 
+                    self.cur.execute("SELECT s.id, s.node_ids, geom FROM sides AS s \
+                                            WHERE ST_DWithin(ST_GeomFromText('%s',%s),s.geom,0.05);" % (line_string,self.epsg))
+    
+                    r_sides = self.cur.fetchall()
+                    
+                    #check to see if the side is actually part of the edge
+                    for s in r_sides:
+                        node_ids = s[1]
+                        #only choose nodes which are part of the nodes list above (i.e. nodes on the buildings edge)
+                        if node_ids[0] in building_nodes and node_ids[1] in building_nodes:  
+                            n1_set = set(building_nodes_neighbours_dict[node_ids[0]])                        
+                            n2_set = set(building_nodes_neighbours_dict[node_ids[1]])
+                            
+                            #check if the side spans across the corner of the building (i.e. not actually a building side)
+                            matches = n1_set.intersection(n2_set)       
+                            matches.discard(0)
+                            if len(matches) == 1:
+                                building_sides.append(s[0])
+                                building_sides_db.append([s[0],s[2]])
+    
+                    for side in building_sides_db:                    
+                        self.cur.execute("INSERT INTO building_sides (id,geom) VALUES (%s,ST_Geometry('%s'));" % (side[0],side[1]))
+                else:
+                    self.cur.execute("SELECT s.id, s.node_ids, geom FROM sides AS s \
+                                        WHERE ST_DWithin(ST_GeomFromText('%s',%s),s.geom,0.05) \
+                                        AND ST_DWithin(ST_GeomFromText('%s',%s),ST_Centroid(s.geom),0.05);" % (line_string,self.epsg,line_string,self.epsg))
+                    r_sides = self.cur.fetchall()
+                    for s in r_sides:
+                        building_sides.append(s[0])
+                        building_sides_db.append([s[0],s[2]])
+                    
                 for side in building_sides_db:                    
                     self.cur.execute("INSERT INTO building_sides (id,geom) VALUES (%s,ST_Geometry('%s'));" % (side[0],side[1]))
-                
+                    
                 
                 building_elements = []
+                #IF Buildings are HOLES select the elements that are along the edges of the building
+                if holes == True:  
+                    self.cur.execute("SELECT e.id, e.geom FROM elements AS e, buildings AS b \
+                            WHERE ST_DWithin(b.geom,e.geom,0.1) \
+                            AND b.id = %s;" % (id))
                 
-                self.cur.execute("SELECT e.id, e.geom FROM elements AS e, buildings AS b \
-                        WHERE ST_DWithin(b.geom,e.geom,0.1) \
-                        AND b.id = %s;" % (id))
+                #IF Buildings are Gridded select the elements that are inside te building
+                else:
+                    self.cur.execute("SELECT e.id,e.geom FROM elements AS e, buildings AS b \
+                                        WHERE ST_DWithin(b.geom,e.geom,0.1) \
+                                        AND ST_Contains(b.geom,ST_Centroid(e.geom)) \
+                                        AND b.id = %s \
+                                        ORDER BY e.id;" % (id))             
 
 
                 r_elements = self.cur.fetchall()
@@ -2759,7 +2737,11 @@ class GridPG:
                 
                 if( len(building_nodes) > 0 or len(building_sides) > 0 or len(building_elements) > 0):
                     
-                    dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2])}
+                    if holes == True:
+                        dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':1}     #building is HOLE in Grid
+                    else:
+                        dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':2}     #building is Gridded in mesh
+                        
                     
                     if(building_nodes != []):
                         dictionary[id]['nodes'] = building_nodes           #add to dictionary                   

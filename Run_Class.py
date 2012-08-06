@@ -204,7 +204,7 @@ class RunClass:
 
 
 
-    def add_building_output_locations(self,area_id,start,end,step):
+    def add_building_output_locations(self,area_id,start,end,step,holes=True):
         """
         For each of node,element and side corresponding to the buildings in the grid,
         request output
@@ -218,10 +218,50 @@ class RunClass:
         """ 
         print "Getting buildings locations..."
         
-        dictionary = self.grid.get_building_output_locations(area_id)
+        dictionary = self.grid.get_building_output_locations(area_id,holes)
         if (dictionary != {}):
             self.run_nc.add_building_output_locations(dictionary, start, end,step)
+
+
+    def add_building_output_locations2(self,areasList,start,end,step):
+        """
+        For each of node,element and side corresponding to the buildings in the grid,
+        request output
         
+        Input:
+            areasList - list of areas and corresponding building types (i.e. gridded (False) or as holes (True))
+            start: iteration # where output should start
+            end: iteration # where output should end
+        
+        
+        """ 
+        print "Getting buildings locations..."
+        
+        dictionaries = []
+        dictionary = {}
+        
+        self.grid.init_building_output_tables()
+        for a in areasList:
+            type = True
+            if a[1] == 'BUILDINGS_AS_HOLES':
+                type = True
+            elif a[1] == 'BUILDINGS_GRIDDED':
+                type = False
+            else:
+                type = True
+                
+            dictionaries.append(self.grid.get_building_output_locations(a[0],type))
+       
+        for dict in dictionaries:
+            for row in dict.iteritems(): 
+                dictionary[row[0]] = row[1]              
+
+        print "Number of buildings = %s" % (len(dictionary))
+
+        if (dictionary != {}):
+            self.run_nc.add_building_output_locations(dictionary, start, end,step)
+
+
     def add_element_output_locations(self, xy, epsgIN,start,end,step):
         """
         Given a list of points [x,y], return a list of ids corresponding to the element that 
@@ -531,37 +571,8 @@ class RunClass:
             sys.exit()
         
 
-    def set_form_drag_in_buildings(self, area_id, element_code):
-        """
-        Set the drag for elements inside the building areas
-        
-        area_id - the id (in the postgis table) of the target area
-        element_code - target element code of elements in the areas
-        
-        NOTE: 	The element_code must correspond to an element code number in the drag_parameters list
-        		and the friction parameters list
-        		
-        		Drag definitions can be assigned multiple time to an element, however, only
-        		the last defined code will be used for computations in RiCOM
-        		
-        """
-        #ERROR Checking
-        dragDefined = False
-        for fd in self.drag_parameters:
-            if fd[0] == element_code:
-                dragDefined = True
-        
-        #if the element code is defined in the drag_parameters list
-        if dragDefined:
-            elements_in_area = self.grid.get_elements_in_buildings(area_id)              #get all elements in the area
-            for el in elements_in_area:                                             #save elements to the form_drag_elements array
-                self.form_drag_elements.append([el[0],element_code])         
-        else:
-            print "Given element_code is is not defined in the drag_parameters list. Exiting..."
-            sys.exit()
 
-
-    def set_form_drag_in_buildings2(self, area_id, element_code):
+    def set_form_drag_inside_buildings(self, area_id, element_code):
         """
         Set the drag for elements inside the building areas
         
@@ -585,7 +596,7 @@ class RunClass:
         
         #if the element code is defined in the drag_parameters list
         if dragDefined:
-            elements_in_area = self.grid.get_elements_in_buildings2(area_id)              #get all elements in the area
+            elements_in_area = self.grid.get_elements_inside_buildings(area_id)              #get all elements in the area
             for el in elements_in_area:                                             #save elements to the form_drag_elements array
                 self.form_drag_elements.append([el[0],element_code])         
         else:
@@ -817,13 +828,14 @@ class RunNC:
             sidesAll = []
             id = []
             perimeter = []
-            
+            type = []
             for row in dictionary.iteritems(): 
                 id.append(row[0])              
                 n = row[1]['nodes'] 
                 e = row[1]['elements']
                 s = row[1]['sides']
                 perimeter.append(row[1]['perimeter'])
+                type.append(row[1]['type'])                 #type=1 (Building is hole in grid), type=0 (building is gridded)
                 nodesAll.extend(n)
                 elementsAll.extend(e)
                 sidesAll.extend(s)
@@ -880,9 +892,14 @@ class RunNC:
                 building_wkt = self.buildings.variables['building_wkt']            
                 print "WARNING: %s" % e
 
-            try: building_perimeter = self.buildings.createVariable(varname = 'building_perimeter',datatype = 'd', dimensions=('number_of_buildings',)) 
+            try: building_perimeter = self.buildings.createVariable(varname = 'building_perimeter',datatype = 'i', dimensions=('number_of_buildings',)) 
             except Exception, e:
                 building_wkt = self.buildings.variables['building_perimeter']            
+                print "WARNING: %s" % e
+
+            try: building_type = self.buildings.createVariable(varname = 'building_type',datatype = 'd', dimensions=('number_of_buildings',)) 
+            except Exception, e:
+                building_wkt = self.buildings.variables['building_type']            
                 print "WARNING: %s" % e
 
             try: building_nodes = self.buildings.createVariable(varname = 'building_nodes',datatype = 'i', dimensions=('number_of_buildings','max_number_nodes',)) 
@@ -905,6 +922,7 @@ class RunNC:
             building_sides[:] = sides
             building_id[:] = array(id) 
             building_perimeter[:] = array(perimeter)
+            building_type[:] = array(type)
             #Set the attributes
             self.building_nodes.start = start
             self.building_nodes.finish = end
