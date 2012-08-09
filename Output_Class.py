@@ -72,12 +72,19 @@ class ReadOutput:
         
         self.elevation = self.domain_grp.variables['xyz'][:,2]
 
+
+        #get the side unit vectors
+        self.sdx = self.domain_grp.variables['sdx'][:]
+        self.sdy = self.domain_grp.variables['sdx'][:]
+
+
         
         self.__init_buildings_dictionary__()
 
         #connect to the POSTGIS database
         self.grid_pg = GridPG(grid_dbname=grid_dbname, epsg = grid_db_epsg) 
         self.slen = self.grid_pg.get_side_lengths()
+        #self.element_areas = self.grid_pg.get_element_areas()
 
         
 
@@ -155,9 +162,21 @@ class ReadOutput:
         speedMax_dict['nodes'] = []
         speedMax_dict['elements'] = []
         speedMax_dict['sides'] = []
+        speedMax_dict['sides2'] = []
+
         etaMax_dict['nodes'] = []
         etaMax_dict['elements'] = []
         etaMax_dict['sides'] = []
+
+
+        speedAvg_dict = {}
+        etaAvg_dict = {}
+        speedAvg_dict['nodes'] = []
+        speedAvg_dict['elements'] = []
+        speedAvg_dict['sides'] = []
+        etaAvg_dict['nodes'] = []
+        etaAvg_dict['elements'] = []
+        etaAvg_dict['sides'] = []       
         
         etaMaxMax = 0
         speedMaxMax = 0
@@ -172,6 +191,8 @@ class ReadOutput:
         while i < iMAX:
             speedMax = 0
             etaMax = 0
+            speedAvg = 0
+            etaAvg = 0
             uAll = 0
             vAll = 0
             uvLIST = []
@@ -179,6 +200,11 @@ class ReadOutput:
             nodesU = self.building_nodes_grp.variables['uv'][:,i,0]
             nodesV = self.building_nodes_grp.variables['uv'][:,i,1]
             nodesEta = self.building_nodes_grp.variables['eta'][:,i]
+
+
+            sidesU = self.building_sides_grp.variables['uv'][:,i,0]
+            sidesV = self.building_sides_grp.variables['uv'][:,i,1]
+
     
             #get the node output
             for n in nodes:
@@ -193,17 +219,19 @@ class ReadOutput:
                     vAll = vAll + v
     
                     speed = math.sqrt(u*u + v*v)
-                    #speedAvg = speedAvg + speed                      
+                    speedAvg = speedAvg + speed                      
     
                     if speed > speedMax:
                         speedMax = speed
-    
+                    
+                    
                     eta = nodesEta[self.node_ids_dict[n]] - self.elevation[n-1]
-                    #etaAvg = etaAvg + eta
+                    etaAvg = etaAvg + eta
     
                     if eta > etaMax:
                         etaMax = eta
-                        
+             
+            '''           
             #compute the unit vector of [uAll,vAll]
             ui = uAll/math.sqrt(uAll*uAll + vAll*vAll)
             vi = vAll/math.sqrt(uAll*uAll + vAll*vAll)
@@ -234,7 +262,7 @@ class ReadOutput:
                 k+=1    
             
             print "%s     %s   %s   %s     %s" % (math.acos(ui)*180/math.pi, mUi,mVi, nodes[kMax1],nodes[kMax2])
-                
+            '''   
                 
                 
                     
@@ -248,9 +276,63 @@ class ReadOutput:
             etaMax_dict['nodes'].append(etaMax)
             if etaMax > etaMaxMax:
                 etaMaxMax = etaMax
+           
+            speedAvg = speedAvg/nnodes
+            speedAvg_dict['nodes'].append(speedAvg)
+            
+            etaAvg = etaAvg/nnodes
+            etaAvg_dict['nodes'].append(etaAvg)            
+            
+            
+
+            speedMax = 0
+            speedAvg = 0
+            speedAvgWeighted = 0
+            uWeighted = 0
+            vWeighted = 0
+            
+            etaAvg = 0    
+            
+            for s in sides:
+                if s != 0:
+                    u = sidesU[self.side_ids_dict[s]]
+                    v = sidesV[self.side_ids_dict[s]]
+
+                    speed = math.sqrt(u*u + v*v)
+                    speedAvg = speedAvg + speed
+                    #slen is degrees!!! must fix
+                    if speed > speedMax:    
+                        speedMax = speed
+
+
+                    speedAvgWeighted = speedAvgWeighted + speed*(self.slen[s-1])/perimeter
+                    #uWeighted = uWeighted + u*(self.slen[s-1])/perimeter
+                    #vWeighted = vWeighted + v*(self.slen[s-1])/perimeter
+                    
+                    #Calculate the velocity components tangential and normal to the side
+                    ut = self.sdx[s-1]*u - self.sdy[s-1]*v
+                    un = self.sdy[s-1]*u + self.sdx[s-1]*v
+                    uWeighted = uWeighted + abs(ut*(self.slen[s-1])/perimeter)
+                    vWeighted = vWeighted + abs(un*(self.slen[s-1])/perimeter)  
+        
+
+            speedAvg = speedAvg/nsides
+            speedAvgWeighted = math.sqrt(uWeighted*uWeighted + vWeighted*vWeighted)
+
+
+            speedWeighted2 = uWeighted
+            speedMax_dict['sides'].append(uWeighted)
+
+            speedAvg = speedAvg/nsides
+            speedMax_dict['sides2'].append(speedAvgWeighted)
+
+
+                    
+
+
             i+=1
         
-        return speedMax_dict, etaMax_dict,time, etaMaxMax, speedMaxMax            
+        return speedMax_dict, etaMax_dict,time, speedAvg_dict, etaAvg_dict            
 
 
     def get_building_output(self,id):

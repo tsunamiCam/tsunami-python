@@ -2465,7 +2465,18 @@ class GridPG:
             
         return side_lengths
             
- 
+    def get_element_areas(self):
+        """
+        Returns the areas of each element in the domain
+        """
+
+        self.cur.execute("SELECT ST_Area(geom) FROM elements;")
+        r_elements = self.cur.fetchall()
+        element_areas = []
+        for e in r_elements:
+            element_areas.append(e[0])
+            
+        return element_areas 
         
         
 
