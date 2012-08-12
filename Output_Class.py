@@ -305,23 +305,22 @@ class ReadOutput:
                         speedMax = speed
 
 
-                    speedAvgWeighted = speedAvgWeighted + speed*(self.slen[s-1])/perimeter
-                    #uWeighted = uWeighted + u*(self.slen[s-1])/perimeter
-                    #vWeighted = vWeighted + v*(self.slen[s-1])/perimeter
+                    speedAvgWeighted = speed    AvgWeighted + speed*(self.slen[s-1])/perimeter
+                    uWeighted = uWeighted + u*(self.slen[s-1])/perimeter
+                    vWeighted = vWeighted + v*(self.slen[s-1])/perimeter
                     
                     #Calculate the velocity components tangential and normal to the side
                     ut = self.sdx[s-1]*u - self.sdy[s-1]*v
                     un = self.sdy[s-1]*u + self.sdx[s-1]*v
-                    uWeighted = uWeighted + abs(ut*(self.slen[s-1])/perimeter)
-                    vWeighted = vWeighted + abs(un*(self.slen[s-1])/perimeter)  
-        
+
 
             speedAvg = speedAvg/nsides
-            speedAvgWeighted = math.sqrt(uWeighted*uWeighted + vWeighted*vWeighted)
 
+
+            speedAvgWeighted2 = math.sqrt(uWeighted*uWeighted+vWeighted*vWeighted)
 
             speedWeighted2 = uWeighted
-            speedMax_dict['sides'].append(uWeighted)
+            speedMax_dict['sides'].append(speedAvgWeighted2)
 
             speedAvg = speedAvg/nsides
             speedMax_dict['sides2'].append(speedAvgWeighted)
