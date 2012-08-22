@@ -886,6 +886,114 @@ class BuildingsPG:
 
 
 
+    def replace_buildings_from_kml(self,kml_filename, area_id):
+  
+  
+  
+  
+        datasource_in = ogr.Open(kml_filename)    
+        if datasource_in is None:
+            print "Could not open KML file.\n"
+            return n        
+        
+        if datasource_in.GetLayer(0) < 1:
+            print "No data in the input file. \n"
+            return n
+        
+        layer_in = datasource_in.GetLayer(0)
+        layer_in.ResetReading()
+        
+        srs_in = layer_in.GetSpatialRef()       # the footprints spatial reference
+        srs = osr.SpatialReference()            # the spatial reference of the PostGIS database (i.e. self.dbname)
+        srs.ImportFromEPSG(self.epsg)
+
+
+        #self.cur.execute("SELECT (id,ST_AsText(geom)) FROM areas WHERE name='%s';" % (boundary_polygon_name))
+        self.cur.execute("SELECT geom FROM areas WHERE id='%s';" % (area_id))        
+        area = self.cur.fetchall() 
+        area = area[0]        
+        
+        print area
+        
+    
+        self.cur.execute("DELETE FROM buildings \
+                        WHERE (ST_Contains('%s',geom));" % (area))
+
+        self.cur.execute("DELETE FROM buildings \
+                        WHERE id > 4999;")
+
+
+        self.conn.commit()
+             
+        transform = 0
+        if srs_in != srs:
+            transform = 1
+        
+        idStart = 5000
+                   
+        m = 0
+        i = 0
+        sql = ""
+        sqlPTVA = ""
+        j = 0
+        p=0
+        for feature in layer_in:
+            geom = feature.GetGeometryRef()
+            p+=1
+            #geom.wkbFlatten()               #flatten geometry if it is defined with the 25D flag
+            if transform:
+                geom.TransformTo(srs)             
+            
+            
+            wkt = geom.ExportToWkt()
+
+            #wkt = wkt.wktFlatten()
+
+            self.cur.execute("INSERT INTO buildings (pkey,geom,visibility_after,damage,prot_nb,prot_sw,prot_w,so,mo) \
+                             VALUES (%s, ST_Force_2D(ST_GeomFromText('%s','4326')), \
+                             3,7,1,1,1,0.5,0.5);" % (idStart,wkt))     
+            
+            idStart += 1
+
+            feature.Destroy()
+
+
+            
+            '''
+            if geom is not None and (geom.GetGeometryType() ==  ogr.wkbPolygon or geom.GetGeometryType() ==  ogr.wkbMultiPolygon):
+                
+                if (geom.GetGeometryType() ==  ogr.wkbPolygon):
+                    valid = geom.IsValid()
+                    if valid:
+                        if transform:
+                            geom.TransformTo(srs) 
+                        j+=1
+                    else:
+                        i += 1
+                elif (geom.GetGeometryType() ==  ogr.wkbMultiPolygon):
+                    print "Warning: footprints layer contains MULTIPOLYGONS."
+                    m += 1
+    
+            feature.Destroy()
+            '''
+        
+        #if (geom.GetGeometryType() == ogr.wkbPolygon):
+        #    print "YES" 
+
+
+        self.conn.commit()
+
+        
+        print wkt
+        datasource_in.Destroy()
+
+    
+        print i,j,m,p
+        
+        
+        
+
+
 
     def grid_buildings(self, filename, bounding_area_id, epsgOUT,  holes = True):
      
