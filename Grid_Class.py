@@ -88,8 +88,8 @@ class GridClass:
             print "Tsunami: Creating GridNC object (the NetCDF interface to the grid file)"
             # 1) SETUP the grid Netcdf interface object              
             
-            print self.grid_dir + self.grid_filename
-            self.grid_nc = GridNC(grid_filename = self.grid_dir + self.grid_filename, epsg = self.epsg)
+            print self.grid_dir + "/" + self.grid_filename
+            self.grid_nc = GridNC(grid_filename = self.grid_dir  + "/" +  self.grid_filename, epsg = self.epsg)
             
             
             print "Tsunami: Getting the topology of the grid file"
@@ -107,6 +107,8 @@ class GridClass:
     
                 self.grid_pg.add_domain(xyz=xyz, neighbours=neighbours, ntype=ncode,
                                         elements=elements, etype=ecode, sides=sides)
+            
+            
             else:
                 print "WARNING: Grid already added to PostGIS database"
             
@@ -129,6 +131,9 @@ class GridClass:
         
         
         """ 
+        
+        self.grid_pg.init_building_output_tables()
+
         dictionary = self.grid_pg.get_building_output_locations(area_id,holes)
         return dictionary
 
@@ -138,23 +143,23 @@ class GridClass:
         """
         self.grid_pg.init_building_output_tables()
 
-    def get_element_output_locations(self, xy, epsgIN):
+    def get_closest_elements(self, xy, epsgIN):
         """
         Given a list of points [x,y], return a list of ids corresponding to the element that 
         is closest to each point 
 
         
         """ 
-        elementIds, distanceList = self.grid_pg.get_element_output_locations(xy,epsgIN)
+        elementIds, distanceList = self.grid_pg.get_closest_elements(xy,epsgIN)
         return elementIds, distanceList
 
-    def get_node_output_locations(self, xy,epsgIN):
+    def get_closest_nodes(self, xy,epsgIN):
         """
         Given a list of points [x,y], return a list of ids corresponding to the node that 
         is closest to each point 
         
         """         
-        nodeIds, distanceList = self.grid_pg.get_node_output_locations(xy,epsgIN)
+        nodeIds, distanceList,elevationList = self.grid_pg.get_closest_nodes(xy,epsgIN)
         return nodeIds, distanceList
     
 
@@ -1145,178 +1150,6 @@ class GridPG:
         else:
             return -1        
         
-        
-    def add_max_values(self, footprints_max):
-        """
-        Adds the max values (Flood Depth and flow Speed) at each footprint to the postgis database (buildings table)
-        
-        IN:  footprints_max - dictionary of fd_max and speed_max values for each footprint
-        
-        """     
-        
-        
-        #ADD new max value columns to the buildings table
-#        try: self.cur.execute("ALTER TABLE buildings ADD COLUMN fd_max float DEFAULT 0;")
-#        except:
-#            print "add_max_values: Can't add fd_max column to the buildings table"
-#            return 0
-#        
-#        try: self.cur.execute("ALTER TABLE buildings ADD COLUMN speed_max float DEFAULT 0;")
-#        except:
-#            print "add_max_values: Can't add speed_max column to the buildings table"
-#            return 0
-        
-        for footprint_id, data in footprints_max.iteritems():
-            self.cur.execute("UPDATE buildings SET fd_max = %s, speed_max = %s WHERE id = %s;" % (data['fd_max'],data['speed_max'],footprint_id))
-            
-        self.conn.commit()
-        
-    def _add_table_buildings_(self):	
-		try: self.cur.execute("CREATE TABLE buildings (pkey integer PRIMARY KEY,id int4);")     
-		except: print "Table \"buildings\" already exists."
-		else: 
-			self.cur.execute("SELECT AddGeometryColumn('buildings', 'geom', %s, 'POLYGON', 2);" % self.epsg)
-			#ADD extra PTVA columns to the 'buildings' table
-			self.cur.execute("ALTER TABLE buildings ADD COLUMN s float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN m float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN g float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN f float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN so float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN mo float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN pc float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN prot_br float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN prot_nb float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN prot_sw float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN prot_w float DEFAULT 0; \
-								ALTER TABLE buildings ADD COLUMN comment varchar(128);")        	
-				
-			#CREATE RULE for when new records are added to the buildings table
-			#This rules makes the ID of new building record equal to PKEY
-			self.cur.execute("CREATE RULE force_id AS ON INSERT TO buildings \
-								DO ALSO \
-								UPDATE buildings SET id = NEW.pkey WHERE pkey = NEW.pkey;")
-			self.conn.commit()	
-		
-    def add_footprints(self, filename, layername = "", boundaryID = 1):
-        """
-        This function imports the building footprints for the project
-        
-        IN: filename = file name containing footprints POLYGONS for the study area
-            Input file is generally a KML or ESRI Shapefile containing building
-            footprints as POLYGONS or MULTIPOLYGONS
-            layername = name of layer containing footprints
-            If no layername is given function assumes that the first layer (index=0)
-            contains the footprints data
-            boundaryID - the id of the boundary polygon inside which the footprints are to be imported (i.e. the study area)
-            
-        OUT: function returns # of geometries imported if successful or 0 if unsuccessful
-        
-        """
-        n = 0
-        self.cur.execute("DROP TABLE IF EXISTS buildings;")
-        self._add_table_buildings_()					#Create new buildings table
-        #NOTE the PRIMARY KEY is pkey is required for Geoserver to write to the table via WFS_T
-        #self.cur.execute("CREATE TABLE buildings (pkey integer PRIMARY KEY, id int4);")
-        #self.cur.execute("SELECT AddGeometryColumn('buildings', 'geom', %s, 'POLYGON', 2);" % self.epsg)      
-        self.cur.execute("SELECT * FROM buildings LIMIT 1;" )
-        if len(self.cur.fetchall()) == 0:                   #If table is empty then fill up with footprints
-            datasource_in = ogr.Open(filename)    
-            if datasource_in is None:
-                print "Could not open footprints file.\n"
-                return n        
-            #print datasource_in.GetLayerCount()
-            #layer_in = datasource_in.GetLayerByName("footprints")
-            
-            if datasource_in.GetLayer(0) < 1:
-                print "No data in the input file. \n"
-                return n
-            
-            layer_in = datasource_in.GetLayer(0)
-            layer_in.ResetReading()
-            
-            srs_in = layer_in.GetSpatialRef()       # the footprints spatial reference
-            srs = osr.SpatialReference()            # the spatial reference of the PostGIS database (i.e. self.dbname)
-            srs.ImportFromEPSG(self.epsg)
-                 
-            transform = 0
-            if srs_in != srs:
-                transform = 1
-    
-                       
-            m = 0
-            i = 0
-            sql = ""
-            sqlPTVA = ""
-    
-            for feature in layer_in:
-                geom = feature.GetGeometryRef()
-                #geom.wkbFlatten()               #flatten geometry if it is defined with the 25D flag
-                if geom is not None and (geom.GetGeometryType() ==  ogr.wkbPolygon or geom.GetGeometryType() ==  ogr.wkbMultiPolygon):
-                    
-                    if (geom.GetGeometryType() ==  ogr.wkbPolygon):
-                        valid = geom.IsValid()
-                        if valid:
-                            if transform:
-                                geom.TransformTo(srs) 
-                            
-                            wkt = geom.ExportToWkt()
-                            self.cur.execute("SELECT b.id FROM boundary as b WHERE (ST_Contains(b.geom,ST_GeomFromText('%s',%s))) AND b.id=%s" % (wkt, self.epsg, boundaryID))        
-                            #if the current footprint is contained within the study boundary polygon then add to SQL command list
-                            if len(self.cur.fetchall()) != 0:
-                                sql = sql + "INSERT INTO buildings (pkey,id,geom) VALUES (%s,%s,ST_GeomFromText('%s',%s));\n" % (n+1,n+1, wkt, self.epsg)                             
-                                sqlPTVA = sqlPTVA + "INSERT INTO ptva (building_id) VALUES (%s);\n" % (n+1)
-                                n += 1
-                        else:
-							i += 1
-                    elif (geom.GetGeometryType() ==  ogr.wkbMultiPolygon):
-                        print "Warning: footprints layer contains MULTIPOLYGONS."
-                        m += 1
-    
-                feature.Destroy()
-            
-            print "Number of building POLYGON footprints imported = %s" % n
-            print "Number of building MULTIPOLYGON footprints NOT imported = %s" % m
-            print "Number of invalid geometries = %s" % i
-            
-            if (sql != "") and (sqlPTVA != ""):
-                self.cur.execute(sql)
-                self.cur.execute(sqlPTVA)
-                print "Creating spatial index on buildings...."
-                self.cur.execute("CREATE INDEX buildings_idx ON buildings USING GIST (geom);")
-
-                
-                #ADD extra PTVA columns to the 'buildings' table
-                '''
-                self.cur.execute("ALTER TABLE buildings ADD COLUMN s float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN m float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN g float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN f float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN so float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN mo float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN pc float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN prot_br float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN prot_nb float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN prot_sw float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN prot_w float DEFAULT 0; \
-                                ALTER TABLE buildings ADD COLUMN comment varchar(128);")
-                '''  
-
-
-				#CREATE RULE for when new records are added to the buildings table
-				#This rules makes the ID of new building record equal to PKEY
-				#self.cur.execute("CREATE RULE force_id AS ON INSERT TO buildings DO ALSO UPDATE buildings SET id = NEW.pkey WHERE pkey = NEW.pkey;")
-                self.conn.commit()
-
-    
-            datasource_in.Destroy()
-        
-
-        
-            return n
-        
-        else: 
-            print "Footprints table already full."
-            return n
 
     def add_domain(self, xyz, neighbours, ntype, elements, etype, sides, epsgIN = 4326):
         """
@@ -1367,9 +1200,33 @@ class GridPG:
                 self.cur.execute(sql)
                 i += 1
                 
-            
+
             #Create spatial index for the node table
             self.cur.execute("CREATE INDEX nodes_idx ON nodes USING GIST (geom);")
+
+            print "Getting building elevations..."
+
+            self.cur.execute("SELECT id, geom,ST_Perimeter(geom),ST_X(ST_Centroid(geom)),ST_Y(ST_Centroid(geom)) FROM buildings;")
+            buildings = self.cur.fetchall()
+            
+            buildingsCentroid = []
+            buildingIds = []
+            for b in buildings:
+                
+                buildingsCentroid.append([float(b[3]),float(b[4])])
+                buildingIds.append(b[0])
+                
+            #get the elevations of the nodes closest to each of the building footprint polygons
+            ids,distances,elevations = self.get_closest_nodes(buildingsCentroid, self.epsg) 
+                        
+            self.cur.execute("ALTER TABLE buildings ADD COLUMN elevation float;")
+            self.conn.commit()
+            
+
+            i = 0
+            for id in buildingIds:
+                self.cur.execute("UPDATE buildings SET elevation = %s WHERE id = %s" % (elevations[i],id))
+                i+=1
     
             print "Adding elements..."
 
@@ -1401,7 +1258,9 @@ class GridPG:
                 self.cur.execute(sql)
                 i += 1
                 4    
-     
+
+
+                
             #Create spatial index for the node table
             self.cur.execute("CREATE INDEX sides_idx ON sides USING GIST (geom);")
             self.conn.commit()
@@ -1538,113 +1397,6 @@ class GridPG:
  
  
             
-    def _offset_polygon_(self, offset=0.1, table = 'buildings',column = 'geom'):
-        """
-        Offset the building footprint polygons by passed amount offset (in meters)
-        PRIVATE function to the PGTsunami CLASS
-        
-        """
-        #Assumes that the input polygon is closed (i.e. the endpoint is the same as the start)
-        #Assumes that input polygon is Clockwise defines (is this the standard??)
-        #polyIn is a list of x,y points
-      
-      
-        import math
-        self.cur.execute("SELECT id, ST_AsText(%s) FROM %s;" %(column, table))
-        polySQL = self.cur.fetchall()
-        polyList = []
-        id = []
-        
-        
-        for poly in polySQL:    #extract the polygon vertices from the POSTGIS polygon    
-            id.append(poly[0])
-            poly = poly[1]
-            polygon = []
-            i = poly.find('POLYGON((')
-            j = poly.find('))')
-            points = poly[i+9:j]
-            points = points.replace(',',' ').split()
-    
-            i = 0
-            while i < len(points):
-                polygon.append([float(points[i]), float(points[i+1])])
-                i += 2
-           
-            polyList.append(polygon)
-            
-        polyOffsetList = []        
-        for poly in polyList:
-            numPts = len(poly)
-            polyOffset = []
-            n = 0
-            while n < numPts:
-                #calculate the angle between segment [ n, n+1] and segment [n+1, n+2]
-                if n == 0:
-                    i0 = numPts-2
-                    i1 = n
-                    i2 = n+1          
-                elif n == numPts-1:
-                    i0 = n-1
-                    i1 = n
-                    i2 = 1  
-                else:
-                    i0 = n-1
-                    i1 = n
-                    i2 = n+1         
-                    
-                #translate vector to the origin (the point at index = n)
-                d1 = [(poly[i0][0] - poly[i1][0]),(poly[i0][1] - poly[i1][1])]
-                d2 = [(poly[i2][0] - poly[i1][0]),(poly[i2][1] - poly[i1][1])]
-                #make all vectors unit vectors
-                m1 = math.sqrt(d1[0]*d1[0]+d1[1]*d1[1])
-                m2 = math.sqrt(d2[0]*d2[0]+d2[1]*d2[1])
-                u1 = [d1[0]/m1, d1[1]/m1]
-                u2 = [d2[0]/m2, d2[1]/m2]
-                #calculate the angle between the two vectors
-                a = (math.atan2(d2[1], d2[0])-math.atan2(d1[1], d1[0]))
-                if a > 0:
-                    a = (-2*math.pi+a)/2
-                else:
-                    a = a/2
-                
-                #rotate the the first unit vector (point n-1) to half the angle between the two unit vectors
-                R = [[math.cos(a), -math.sin(a)],[math.sin(a),math.cos(a)]]
-                nx = u1[0]*R[0][0] + u1[1]*R[0][1]
-                ny = u1[0]*R[1][0] + u1[1]*R[1][1]
-        
-                polyOffset.append([poly[n][0]+nx*offset,poly[n][1]+ny*offset])            
-                n+=1    
-            
-            polyOffsetList.append(polyOffset)
-            
-        #convert to wkt formated polygon list
-        polyOffsetListWKT = []
-        for poly in polyOffsetList:
-            wkt = "POLYGON(("
-            i = 0
-            nPts = len(poly)
-            while i < nPts - 1:
-                ptStr = "%s %s," % (poly[i][0], poly[i][1])
-                wkt = wkt + ptStr
-                i += 1    
-            ptStr = "%s %s))" % (poly[i][0], poly[i][1])
-            wkt = wkt + ptStr
-            polyOffsetListWKT.append(wkt)
-        
-        #add offset building footprints to a new table
-        self.cur.execute("DROP TABLE IF EXISTS offset1;")
-        self.cur.execute("CREATE TABLE offset1 (id int4);")
-        self.cur.execute("SELECT AddGeometryColumn('offset1', 'geom', %s, 'POLYGON', 2);" % self.epsg)
-        
-        n = 0
-        for poly in polyOffsetListWKT:
-            self.cur.execute("INSERT INTO offset1 (id, geom) VALUES (%s, ST_GeomFromText('%s',%s));" % (polySQL[n][0], poly, self.epsg))            
-            n += 1
-            
-        self.conn.commit()
-
-        
-        return id, polyOffsetListWKT
             
     def geom_to_kml(self, geomList=[],kml_file="PostGIS.kml", epsgIN=28355):
         """
@@ -1752,47 +1504,6 @@ class GridPG:
         else:
             print "No point in PostGIS Geometry List!!"
         
-    def add_boundary(self,ply_in="../output/SQL/KBBuildingBoundingPoly2.ply",epsgIN = 28355):
-        """
-        """  
-        ply_file = open(ply_in, "r").readlines() 
-        boundingPoly = []
-        for row in ply_file:
-            row =  row.split()
-            boundingPoly.append(row)
-            
-            print "row = %s" % row
-            
-     	print "self.epsg = %s" % self.epsg   
-        
-        boundingPoly = self._convert_points_(boundingPoly, epsgIN,epsgOUT=self.epsg) 
-           
-        self.cur.execute("DROP TABLE IF EXISTS boundary;")
-        self.cur.execute("CREATE TABLE boundary (id int4, description varchar(64));")
-        self.cur.execute("SELECT AddGeometryColumn('boundary', 'geom', %s, 'POLYGON', 2);" % self.epsg)
-        
-        sql = "ST_GeomFromText('POLYGON(("
-        numPts = len(boundingPoly)
-        i = 0
-        while i < (numPts - 1):
-            ptText = "%s %s, " % (str(boundingPoly[i][0]),str(boundingPoly[i][1]))
-            sql = sql + ptText
-            i += 1
-            
-        ptText = "%s %s))',%s));" % (str(boundingPoly[i][0]),str(boundingPoly[i][1]),self.epsg)
-        sql = sql + ptText
-    
-        ptText = "INSERT INTO boundary (ID,description,geom) VALUES (1,'Ishinomaki Study Area',"
-        sql = ptText + sql
-        self.cur.execute(sql)  
-        self.conn.commit()
-
-        self.cur.execute("SELECT ST_AsText(geom) FROM boundary;")  
-        boundary = self.cur.fetchall() 
-        self.geom_to_kml(boundary[0],kml_file="boundary.kml", epsgIN=self.epsg)
-
-        return
-  
     
     def get_area_by_id(self,area_id):
         '''
@@ -1851,7 +1562,7 @@ class GridPG:
 		
 		return footprintsList
 
-    def get_element_output_locations(self, xy, epsgIN):
+    def get_closest_elements(self, xy, epsgIN):
         """
         Given a list of points [x,y], return a list of ids corresponding to the element that 
         is closest to each point 
@@ -1892,7 +1603,7 @@ class GridPG:
         return elementIds,distanceList
                 
 
-    def get_node_output_locations(self, xy,epsgIN):
+    def get_closest_nodes(self, xy,epsgIN):
         """
         Given a list of points [x,y], return a list of ids corresponding to the node that 
         is closest to each point 
@@ -1903,22 +1614,31 @@ class GridPG:
         """
         #To RETURN:  the ids of closest node to each xy point
         nodeIds = [] 
-        distanceList = [] 
+        distanceList = []
+        elevationList = [] 
+        xy = self._convert_points_(pointsIN=xy,epsgIN=epsgIN,epsgOUT=self.epsg)
+
+        
+        i = 0
         for pt in xy:
 
             wkb = 'POINT(%s %s)' % (pt[0],pt[1])
             radius = 10
+            x = float(pt[0])
+            y = float(pt[1])
             
             ptsFound = False
             while(ptsFound == False):
-                self.cur.execute("SELECT ( \
-                                  ST_Distance(geom,ST_Transform(ST_GeomFromText('%s',%s),%s)), id) \
+                boundingBOX = 'POLYGON((%s %s, %s %s, %s %s, %s %s))' % (x-radius,y-radius, x+radius,y-radius, x+radius, y+radius, x-radius, y-radius)            
+                self.cur.execute("SELECT \
+                                  ST_Distance( geom,ST_GeomFromText('%s',%s) ), id, ST_X(geom),ST_Y(geom), xyz[3] \
                                   FROM nodes \
-                                  WHERE ST_DWithin(geom,ST_Transform(ST_GeomFromText('%s',%s),%s),%s) \
+                                  WHERE ST_Contains(ST_GeomFromText('%s',%s),geom) \
+                                  AND ST_DWithin(geom,ST_GeomFromText('%s',%s),%s) \
                                   ORDER BY 1" % 
-                                  (wkb,epsgIN,self.epsg,wkb,epsgIN,self.epsg, radius))
+                                  (wkb,self.epsg,boundingBOX,self.epsg,wkb,self.epsg, radius))
                                 
-                pts = self.cur.fetchall() 
+                pts = self.cur.fetchall()                 
                 if(len(pts) == 0):
                    radius = radius*2        #increase the search radius and try again
                    if(radius > 100000):     #Stop searching if there are no points nearby
@@ -1927,21 +1647,27 @@ class GridPG:
                     ptsFound = True
 
             if(ptsFound == True):       #pts found
-                closestPt = pts[0][0]
-                i = closestPt.find(',')
-                j = closestPt.find(')')
-                id = closestPt[i+1:j]
-                i = closestPt.find('(')
-                j = closestPt.find(',')
-                distance = closestPt[i+1:j]
-
+                x = pts[0][2]
+                y = pts[0][3]
+                z = pts[0][4]
+                distance = pts[0][0]
+                id = pts[0][1]
+                                    
                 nodeIds.append(int(id))
                 distanceList.append(float(distance))
+                elevationList.append(float(z))
+                i+=1
+                
             else:
                 nodeIds.append(0)   #no point has been found within an acceptable distance
                 distanceList.append(0)
+                print "get_closest_nodes() : NO POINTS WITHIN required distance!!"
+                print radius
+                print pt
+                sys.exit()
+                
 
-        return nodeIds,distanceList
+        return nodeIds,distanceList,elevationList
 
 
     def add_run(self,run_id, name,description,run_filename, grid_filename):
@@ -2003,224 +1729,8 @@ class GridPG:
             return True
       
 
-    def get_output_at_building(self,run_id,building_id):
-        """
-        
-        
-        
-        """
-        nodes_dictionary = {}
-        if(self.is_run_defined(run_id)):
-            #Get node outputs
-            self.cur.execute("SELECT nodes FROM buildings WHERE id = %s;" % (building_id))
-            nodes_dictionary = {'node_ids': [], 'time': [], 'eta': {}, 'uv': {}}
-            nodes = self.cur.fetchall() 
-            nodes_dictionary['node_ids'] = nodes[0][0]
-
-            for id in nodes[0][0]:
-                self.cur.execute("SELECT eta, uv, time FROM output_nodes WHERE run_id = %s AND node_id = %s;" % (run_id, id))
-                output = self.cur.fetchall() 
-                if(len(output) != 0):
-                    nodes_dictionary['eta'][id] = output[0][0]
-                    nodes_dictionary['uv'][id] = output[0][1]
-
-            if(len(output) != 0): nodes_dictionary['time'] = output[0][2]
-
-            #Get element outputs
-            self.cur.execute("SELECT elements FROM buildings WHERE id = %s;" % (building_id))
-            elements_dictionary = {'element_ids': [], 'time': [], 'eta': {}, 'uv': {}}
-            elements = self.cur.fetchall() 
-            elements_dictionary['element_ids'] = elements[0][0]
-
-            for id in elements[0][0]:
-                self.cur.execute("SELECT eta, uv, time FROM output_elements WHERE run_id = %s AND element_id = %s;" % (run_id, id))
-                output = self.cur.fetchall()
-                if(len(output) != 0):
-                    elements_dictionary['eta'][id] = output[0][0]
-                    elements_dictionary['uv'][id] = output[0][1]
-            
-            if(len(output) != 0): elements_dictionary['time'] = output[0][2]
-
-            #Get side outputs
-            self.cur.execute("SELECT sides FROM buildings WHERE id = %s;" % (building_id))
-            sides_dictionary = {'side_ids': [], 'time': [], 'eta': {}, 'uv': {}}
-            sides = self.cur.fetchall() 
-            sides_dictionary['side_ids'] = sides[0][0]
-
-            for id in sides[0][0]:
-                self.cur.execute("SELECT eta, uv, time FROM output_sides WHERE run_id = %s AND side_id = %s;" % (run_id, id))
-                output = self.cur.fetchall()
-                if(len(output) != 0):
-                    sides_dictionary['eta'][id] = output[0][0]
-                    sides_dictionary['uv'][id] = output[0][1]
-
-            if(len(output) != 0): sides_dictionary['time'] = output[0][2]
-
-
-        return nodes_dictionary,elements_dictionary,sides_dictionary
-
     
-    def add_output_at_node(self, run_id, node_id, eta, uv, time):
-        """
-        Add output at an node
-        
-        """        
-        
-        #check if the given Node_id is defined in the grid
-        self.cur.execute("SELECT id FROM nodes WHERE id = %s;" % (node_id))
-        node = self.cur.fetchall()    
-        if(len(node) != 1):
-            print "Node with ID = %s not available in database." % node_id
-            return -1
-        
-        self.cur.execute("SELECT node_id FROM output_nodes WHERE run_id = %s AND node_id = %s LIMIT 1;" % (run_id, node_id))
-        r = self.cur.fetchall()    
-        if(len(r) == 1):
-            print "Data from run_id = %s already in Database.  Please delete run and try again;" % run_id
-            sys.exit()
-
-
-        if eta == []: eta = [float(0.0)]
-        
-        if uv == []: uv = [[float(0.0),float(0.0)]]    
-        
-        self.cur.execute("INSERT INTO output_nodes (run_id, node_id, eta,uv, time) \
-                                 VALUES (%s, %s, ARRAY%s, ARRAY%s,ARRAY%s);" 
-                                 % (run_id, node_id, eta,uv, time))             
-        
-        #self.conn.commit()
-
-
-
-
-        
-    
-    def add_output_at_element(self,run_id, element_id, eta,uv, time):
-        """
-        Add output at an element
-        
-        
-        """
-        #check if the given Node_id is defined in the grid
-        self.cur.execute("SELECT id FROM elements WHERE id = %s;" % (element_id))
-        element = self.cur.fetchall()    
-        if(len(element) != 1):
-            print "Element with ID = %s not available in database." % element_id
-            return -1
-        
-        self.cur.execute("SELECT element_id FROM output_elements WHERE run_id = %s AND element_id = %s LIMIT 1;" % (run_id, element_id))
-        r = self.cur.fetchall()    
-        if(len(r) == 1):
-            print "Data from run_id = %s already in Database.  Please delete run and try again;" % run_id
-            sys.exit()
-    
-        
-        if eta == []:
-            eta = [float(0.0)]
-
-        if uv == []:
-            uv = [[float(0.0),float(0.0)]]    
-
-        self.cur.execute("INSERT INTO output_elements (run_id, element_id, eta, uv, time) \
-                         VALUES (%s, %s, ARRAY%s, ARRAY%s,ARRAY%s);" 
-                         % (run_id, element_id, eta, uv,time))             
-        
-#        self.conn.commit()
-
-
-
-
- 
-    
-    def add_output_at_side(self,run_id, side_id, eta,uv, time):
-        """
-        Add output at a side
-        
-        
-        """
-        #check if the given side_id is defined in the grid
-        self.cur.execute("SELECT id FROM sides WHERE id = %s;" % (side_id))
-        side = self.cur.fetchall()    
-        if(len(side) != 1):
-            print "Node with ID = %s not available in database." % side_id
-            return -1
-        
-        self.cur.execute("SELECT side_id FROM output_sides WHERE run_id = %s AND side_id = %s LIMIT 1;" % (run_id, side_id))
-        r = self.cur.fetchall()    
-        if(len(r) == 1):
-            print "Data from run_id = %s already in Database.  Please delete run and try again;" % run_id
-            sys.exit()
-
-        
-        if eta == []:
-            eta = [float(0.0)]
-
-        if uv == []:
-            uv = [[float(0.0),float(0.0)]]    
-        
-        self.cur.execute("INSERT INTO output_sides (run_id, side_id, eta, uv, time) \
-                                 VALUES (%s, %s, ARRAY%s, ARRAY%s, ARRAY%s);" 
-                                 % (run_id, side_id, eta,uv, time))             
-        
-#        self.conn.commit()        
-        
-        
-    def add_builiding_topology(self):
-        """
-        INSERT into the "buildings" table all the nodes, elements and sides in the grid that correspond to each footprints
-        
-        """
-        
-        self.cur.execute("SELECT b.id, ST_AsText(b.geom) FROM buildings AS b;")
-        footprints = self.cur.fetchall() 
-        
-        
-        n = 0
-        for f in footprints:
-                   
-            id = int(f[0])
-            p = self._offset_polygon2_(f[1])
-            #iterate through the building footprint polygon list
-                
-            #Get all the nodes contained in the building footprint polygon (offset)
-            self.cur.execute("SELECT n.id FROM nodes AS n WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) ORDER BY n.id;" % (p, self.epsg ))
-            
-            r_nodes = self.cur.fetchall()
-            
-            #Get all the elements intersecting  the building footprint polygon (offset)
-            self.cur.execute("SELECT e.id FROM elements AS e \
-                    WHERE ST_Intersects(ST_GeomFromText('%s',%s),e.geom) ORDER BY e.id;" \
-                    % (p, self.epsg))
-            r_elements = self.cur.fetchall()
-            
-            #Get all the sides contained in the building footprint polygon (offset)
-            self.cur.execute("SELECT s.id FROM sides AS s\
-                    WHERE ST_Contains(ST_GeomFromText('%s',%s),s.geom) ORDER BY s.id;" \
-                    % (p, self.epsg))
-            
-            r_sides = self.cur.fetchall()
-            
-            nodes = []
-            elements = []
-            sides = []
-
-            
-            for row in r_nodes: nodes.append(row[0])
-            for row in r_elements: elements.append(row[0])
-            for row in r_sides: sides.append(row[0])
-            
-            self.cur.execute("UPDATE buildings SET nodes = ARRAY%s WHERE id = %s;" % (nodes,id))
-            self.cur.execute("UPDATE buildings SET elements = ARRAY%s WHERE id = %s;" % (elements,id))
-            self.cur.execute("UPDATE buildings SET sides = ARRAY%s WHERE id = %s;" % (elements,id))
-            
-            self.conn.commit()
-
-            
-            n += 1
-        return
-
-
-
+  
     def get_elements_inside_buildings(self,area_id = 0):
         """
         Get all the elements corresponding to the buildings that are with the given area polygon.
@@ -2616,28 +2126,35 @@ class GridPG:
         self.conn.commit()            
         
 
-    def get_building_output_locations(self,area_id,holes=True):
+    def get_building_output_locations(self,area_id,type):
         """
         For each building polygon get id's of the nodes, elements and sides that are inside it
         
         area_id: id of the area where building output is requested
+
+        type:        BUILDINGS_AS_HOLES
+                    BUILDINGS_AS_POINTS
+                    BUILDINGS_GRIDDED
         
-        Returns: a dictionary of sides,elements and nodes corresponding to each footprint
+        Returns:    a dictionary of sides,elements and nodes corresponding to each footprint
+                    Depending on the type of grid, different criteria for extracting the output locations is used
         
-        TODO: get elements that make up the footprint
+
+
+
         
         """                        
   
         validArea = False
         if area_id == 0:
-            self.cur.execute("SELECT b.id, ST_AsText(b.geom), ST_Perimeter(b.geom) FROM buildings AS b ORDER BY b.id;")
+            self.cur.execute("SELECT b.id, ST_AsText(b.geom), ST_Perimeter(b.geom),ST_X(ST_Centroid(b.geom)),ST_Y(ST_Centroid(b.geom)) FROM buildings AS b ORDER BY b.id;")
             buildings = self.cur.fetchall() 
             validArea = True
 
         else:   
             a = self.get_area_by_id(area_id)        #get the area as a text object
             if (a != ""):                           #VALID area geometry has been found in areas table         
-                self.cur.execute("SELECT b.id, ST_AsText(b.geom), ST_Perimeter(b.geom) FROM buildings AS b WHERE ST_Contains(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" % (a,self.epsg))
+                self.cur.execute("SELECT b.id, ST_AsText(b.geom), ST_Perimeter(b.geom),ST_X(ST_Centroid(b.geom)),ST_Y(ST_Centroid(b.geom)) FROM buildings AS b WHERE ST_Contains(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" % (a,self.epsg))
                 buildings = self.cur.fetchall()
                 validArea = True
 
@@ -2648,146 +2165,25 @@ class GridPG:
             eleDict = {}
             sidesDict = {}
             dictionary = {}
-            
+
             print "Getting building output locations" 
-            for b in buildings:
-                #convert building polygon to a linestring
-                #-----------------------------------------------
-                #WHY? - PostGIS functions like ST_Distance - return the distance to the 
-                #Polygon as an area not as a line
-                i = b[1].find('POLYGON((')
-                j = b[1].find('))')
-                pts = b[1][i+9:j]
-                pts = pts.replace(',',' ').split()
-                i = 0
-                line_string = 'LINESTRING('                    
-                while i < len(pts)-2:
-                    line_string = line_string + "%s %s," % (pts[i], pts[i+1])
-                    i +=2
-                
-                line_string = line_string + "%s %s)" % (pts[i], pts[i+1])    
-   
-                id = int(b[0])
-                building_nodes = []
-                building_nodes_neighbours_dict = {}
-                
-                self.cur.execute("SELECT n.id, n.code, n.neighbours,n.geom FROM nodes AS n, buildings AS b \
-                                            WHERE ST_DWithin(b.geom,n.geom,0.05) \
-                                            AND b.id = %s;" % (id))
-
-                r_nodes = self.cur.fetchall()
-                for n in r_nodes:
-                    building_nodes.append(n[0])                
-                    building_nodes_neighbours_dict[n[0]] = n[2]
-                    self.cur.execute("INSERT INTO building_nodes (id,geom) VALUES (%s,ST_Geometry('%s'));" % (n[0],n[3]))         
-   
-
-                building_sides = []
-                building_sides_db = []
-                
-                if holes == True:
-                    #GET the sides that make up the building edge - NOT interested in the interior sides
-
-                    self.cur.execute("SELECT s.id, s.node_ids, geom FROM sides AS s \
-                                            WHERE ST_DWithin(ST_GeomFromText('%s',%s),s.geom,0.05);" % (line_string,self.epsg))
-    
-                    r_sides = self.cur.fetchall()
-                    
-                    #check to see if the side is actually part of the edge
-                    for s in r_sides:
-                        node_ids = s[1]
-                        #only choose nodes which are part of the nodes list above (i.e. nodes on the buildings edge)
-                        if node_ids[0] in building_nodes and node_ids[1] in building_nodes:  
-                            n1_set = set(building_nodes_neighbours_dict[node_ids[0]])                        
-                            n2_set = set(building_nodes_neighbours_dict[node_ids[1]])
-                            
-                            #check if the side spans across the corner of the building (i.e. not actually a building side)
-                            matches = n1_set.intersection(n2_set)       
-                            matches.discard(0)
-                            if len(matches) == 1:
-                                building_sides.append(s[0])
-                                building_sides_db.append([s[0],s[2]])
-    
-                    for side in building_sides_db:                    
-                        self.cur.execute("INSERT INTO building_sides (id,geom) VALUES (%s,ST_Geometry('%s'));" % (side[0],side[1]))
-                else:
-                    self.cur.execute("SELECT s.id, s.node_ids, geom FROM sides AS s \
-                                        WHERE ST_DWithin(ST_GeomFromText('%s',%s),s.geom,0.05) \
-                                        AND ST_DWithin(ST_GeomFromText('%s',%s),ST_Centroid(s.geom),0.05);" % (line_string,self.epsg,line_string,self.epsg))
-                    r_sides = self.cur.fetchall()
-                    for s in r_sides:
-                        building_sides.append(s[0])
-                        building_sides_db.append([s[0],s[2]])
-                    
-                for side in building_sides_db:                    
-                    self.cur.execute("INSERT INTO building_sides (id,geom) VALUES (%s,ST_Geometry('%s'));" % (side[0],side[1]))
-                    
-                
-                building_elements = []
-                #IF Buildings are HOLES select the elements that are along the edges of the building
-                if holes == True:  
-                    self.cur.execute("SELECT e.id, e.geom FROM elements AS e, buildings AS b \
-                            WHERE ST_DWithin(b.geom,e.geom,0.1) \
-                            AND b.id = %s;" % (id))
-                
-                #IF Buildings are Gridded select the elements that are inside te building
-                else:
-                    self.cur.execute("SELECT e.id,e.geom FROM elements AS e, buildings AS b \
-                                        WHERE ST_DWithin(b.geom,e.geom,0.1) \
-                                        AND ST_Contains(b.geom,ST_Centroid(e.geom)) \
-                                        AND b.id = %s \
-                                        ORDER BY e.id;" % (id))             
 
 
-                r_elements = self.cur.fetchall()
-                
-                for e in r_elements:
-                    building_elements.append(e[0])
-                    self.cur.execute("INSERT INTO building_elements (id,geom) VALUES (%s,ST_Geometry('%s'));" % (e[0],e[1]))
-
-                
-                if( len(building_nodes) > 0 or len(building_sides) > 0 or len(building_elements) > 0):
-                    
-                    if holes == True:
-                        dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':1}     #building is HOLE in Grid
-                    else:
-                        dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':2}     #building is Gridded in mesh
-                        
-                    
-                    if(building_nodes != []):
-                        dictionary[id]['nodes'] = building_nodes           #add to dictionary                   
-                    if(building_sides != []):                    
-                        dictionary[id]['sides'] = building_sides           #add to dictionary 
-                    if(building_elements != []):                    
-                        dictionary[id]['elements'] = building_elements           #add to dictionary                     
-
-                
-            self.conn.commit()
-            return dictionary
-        
-        else:
-            print "ERROR: No footprints in requested area"
-            return -1;
-        '''
-        else:   
-            a = self.get_area_by_id(area_id)        #get the area as a text object
-            if (a != ""):                           #VALID area geometry has been found in areas table         
-                self.cur.execute("SELECT b.id, ST_AsText(b.geom), ST_Perimeter(b.geom) FROM buildings AS b WHERE ST_Contains(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" % (a,self.epsg))
-                buildings = self.cur.fetchall()
-                validArea = True
+            if type == "BUILDINGS_AS_POINTS":
+                for b in buildings:                
+                    id = int(b[0])
+                    building_nodes,distances,elevations = self.get_closest_nodes([[float(b[3]),float(b[4])]], self.epsg) 
+                    dictionary[id] = {'nodes': building_nodes, 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':type}     #building is Gridded in mesh
 
             
-                nodesDict = {}
-                eleDict = {}
-                sidesDict = {}
-                dictionary = {}
-                
-                print "Getting building output locations" 
-                for b in buildings:
-                    #convert building polygon to a linestring
+            elif type == "BUILDINGS_AS_HOLES" or type == "BUILDINGS_GRIDDED": 
+                for b in buildings:    
+                    #-----------------------------------------------
+                    #Convert building polygon to a LINESTRING
                     #-----------------------------------------------
                     #WHY? - PostGIS functions like ST_Distance - return the distance to the 
                     #Polygon as an area not as a line
+                    #-----------------------------------------------
                     i = b[1].find('POLYGON((')
                     j = b[1].find('))')
                     pts = b[1][i+9:j]
@@ -2800,57 +2196,77 @@ class GridPG:
                     
                     line_string = line_string + "%s %s)" % (pts[i], pts[i+1])    
        
-    
                     id = int(b[0])
-
                     building_nodes = []
                     building_nodes_neighbours_dict = {}
                     
-                    self.cur.execute("SELECT n.id, n.code, n.neighbours,n.geom FROM nodes AS n, buildings AS b \
-                                            WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND \
-                                            ST_DWithin(b.geom,n.geom,0.05) \
-                                            AND b.id = %s;" % (a,self.epsg,id))
+                    self.cur.execute("SELECT n.id, n.code, n.neighbours,n.geom,n.xyz FROM nodes AS n, buildings AS b \
+                                                WHERE ST_DWithin(b.geom,n.geom,0.05) \
+                                                AND b.id = %s;" % (id))
     
                     r_nodes = self.cur.fetchall()
                     for n in r_nodes:
                         building_nodes.append(n[0])                
                         building_nodes_neighbours_dict[n[0]] = n[2]
-                        self.cur.execute("INSERT INTO building_nodes (id,geom) VALUES (%s,ST_Geometry('%s'));" % (n[0],n[3]))         
-       
-                    
-                    #GET the sides that make up the building edge - NOT interested in the interior sides
+                        self.cur.execute("INSERT INTO building_nodes (id,geom) VALUES (%s,ST_Geometry('%s'));" % (n[0],n[3]))
+                                                
                     building_sides = []
                     building_sides_db = []
-                    self.cur.execute("SELECT s.id, s.node_ids, geom FROM sides AS s \
-                                            WHERE ST_Contains(ST_GeomFromText('%s',%s),s.geom) AND \
-                                            ST_DWithin(ST_GeomFromText('%s',%s),s.geom,0.05);" % (a,self.epsg,line_string,self.epsg))
-    
-                    r_sides = self.cur.fetchall()
                     
-                    #check to see if the side is actually part of the edge
-                    for s in r_sides:
-                        node_ids = s[1]
-                        #only choose nodes which are part of the nodes list above (i.e. nodes on the buildings edge)
-                        if node_ids[0] in building_nodes and node_ids[1] in building_nodes:  
-                            n1_set = set(building_nodes_neighbours_dict[node_ids[0]])                        
-                            n2_set = set(building_nodes_neighbours_dict[node_ids[1]])
-                            
-                            #check if the side spans across the corner of the building (i.e. not actually a building side)
-                            matches = n1_set.intersection(n2_set)       
-                            matches.discard(0)
-                            if len(matches) == 1:
-                                building_sides.append(s[0])
-                                building_sides_db.append([s[0],s[2]])
+                    
+                    
+                    if type == "BUILDINGS_AS_HOLES":
+                        #GET the sides that make up the building edge - NOT interested in the interior sides
     
+                        self.cur.execute("SELECT s.id, s.node_ids, geom FROM sides AS s \
+                                                WHERE ST_DWithin(ST_GeomFromText('%s',%s),s.geom,0.05);" % (line_string,self.epsg))
+        
+                        r_sides = self.cur.fetchall()
+                        
+                        #check to see if the side is actually part of the edge
+                        for s in r_sides:
+                            node_ids = s[1]
+                            #only choose nodes which are part of the nodes list above (i.e. nodes on the buildings edge)
+                            if node_ids[0] in building_nodes and node_ids[1] in building_nodes:  
+                                n1_set = set(building_nodes_neighbours_dict[node_ids[0]])                        
+                                n2_set = set(building_nodes_neighbours_dict[node_ids[1]])
+                                
+                                #check if the side spans across the corner of the building (i.e. not actually a building side)
+                                matches = n1_set.intersection(n2_set)       
+                                matches.discard(0)
+                                if len(matches) == 1:
+                                    building_sides.append(s[0])
+                                    building_sides_db.append([s[0],s[2]])
+        
+                        for side in building_sides_db:                    
+                            self.cur.execute("INSERT INTO building_sides (id,geom) VALUES (%s,ST_Geometry('%s'));" % (side[0],side[1]))
+                   
+                    else:
+                        self.cur.execute("SELECT s.id, s.node_ids, geom FROM sides AS s \
+                                            WHERE ST_DWithin(ST_GeomFromText('%s',%s),s.geom,0.05) \
+                                            AND ST_DWithin(ST_GeomFromText('%s',%s),ST_Centroid(s.geom),0.05);" % (line_string,self.epsg,line_string,self.epsg))
+                        r_sides = self.cur.fetchall()
+                        for s in r_sides:
+                            building_sides.append(s[0])
+                            building_sides_db.append([s[0],s[2]])
+                        
                     for side in building_sides_db:                    
-                        self.cur.execute("INSERT INTO building_sides (id,geom) VALUES (%s,ST_Geometry('%s'));" % (side[0],side[1]))
-                    
+                        self.cur.execute("INSERT INTO building_sides (id,geom) VALUES (%s,ST_Geometry('%s'));" % (side[0],side[1]))          
                     
                     building_elements = []
+                    #IF Buildings are HOLES select the elements that are along the edges of the building
+                    if type == "BUILDINGS_AS_HOLES":  
+                        self.cur.execute("SELECT e.id, e.geom FROM elements AS e, buildings AS b \
+                                WHERE ST_DWithin(b.geom,e.geom,0.1) \
+                                AND b.id = %s;" % (id))
                     
-                    self.cur.execute("SELECT e.id, e.geom FROM elements AS e, buildings AS b \
-                            WHERE ST_DWithin(b.geom,e.geom,0.1) \
-                            AND b.id = %s;" % (id))
+                    #IF Buildings are Gridded select the elements that are inside te building
+                    else:
+                        self.cur.execute("SELECT e.id,e.geom FROM elements AS e, buildings AS b \
+                                            WHERE ST_DWithin(b.geom,e.geom,0.1) \
+                                            AND ST_Contains(b.geom,ST_Centroid(e.geom)) \
+                                            AND b.id = %s \
+                                            ORDER BY e.id;" % (id))             
     
     
                     r_elements = self.cur.fetchall()
@@ -2858,11 +2274,14 @@ class GridPG:
                     for e in r_elements:
                         building_elements.append(e[0])
                         self.cur.execute("INSERT INTO building_elements (id,geom) VALUES (%s,ST_Geometry('%s'));" % (e[0],e[1]))
-    
-                    
+                        
                     if( len(building_nodes) > 0 or len(building_sides) > 0 or len(building_elements) > 0):
                         
-                        dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2])}
+                        if holes == True:
+                            dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':type}     #building is HOLE in Grid
+                        else:
+                            dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':type}     #building is Gridded in mesh
+                            
                         
                         if(building_nodes != []):
                             dictionary[id]['nodes'] = building_nodes           #add to dictionary                   
@@ -2871,286 +2290,17 @@ class GridPG:
                         if(building_elements != []):                    
                             dictionary[id]['elements'] = building_elements           #add to dictionary                     
 
+            else:
+                print "get_building_output_locations(): Invalid building type given."
+                sys.exit()
                 
             self.conn.commit()
-            print "Nodes not currently added to output Request: Alter get_building_output_locations() in GridPG if required..."
-
-
             return dictionary
-            '''
-
-
-
-    def add_shapefile(self, filename, tablename = "vectorlayer", boundaryID = 1):
-        """
-        This function imports a shapefile into a the postgis database
         
-        IN: filename = shapefile filename - assume shapefile consists of LINESTRING only
-            tablename = name of the table to be created in the database
-            boundaryID - the id of the boundary polygon inside which the shapefile features are to be imported (i.e. the study area)
-            
-        OUT: function returns # of geometries imported if successful or 0 if unsuccessful
-        
-        """
-        
-        
-        
-        n = 0
-        self.cur.execute("DROP TABLE IF EXISTS roads;")
-        self.cur.execute("CREATE TABLE %s (id int4);" % tablename)
-        self.cur.execute("SELECT AddGeometryColumn('%s', 'geom', %s, 'LINESTRING', 2);" % (tablename, self.epsg))      
-        self.cur.execute("SELECT * FROM %s LIMIT 1;" % tablename )
-        if len(self.cur.fetchall()) == 0:                   #If table is empty then fill up with footprints
-            datasource_in = ogr.Open(filename)    
-            if datasource_in is None:
-                print "Could not open shapefile file.\n"
-                return n        
-            #print datasource_in.GetLayerCount()
-            #layer_in = datasource_in.GetLayerByName("footprints")
-            
-            if datasource_in.GetLayer(0) < 1:
-                print "No data in the input file. \n"
-                return n
-            
-            layer_in = datasource_in.GetLayer(0)
-            layer_in.ResetReading()
-            
-            srs_in = layer_in.GetSpatialRef()       # the footprints spatial reference
-            srs = osr.SpatialReference()            # the spatial reference of the PostGIS database (i.e. self.dbname)
-            srs.ImportFromEPSG(self.epsg)
-                 
-            transform = 0
-            if srs_in != srs:
-                transform = 1
-    
-                       
-            m = 0
-            i = 0
-            sql = ""
-            sqlPTVA = ""
-    
-            for feature in layer_in:
-                geom = feature.GetGeometryRef()
-                #geom.wkbFlatten()               #flatten geometry if it is defined with the 25D flag
-                if geom is not None and (geom.GetGeometryType() ==  ogr.wkbLineString):
-					valid = geom.IsValid()
-					if valid:
-						if transform:
-							geom.TransformTo(srs) 
-						
-						wkt = geom.ExportToWkt()
-						self.cur.execute("SELECT b.id FROM boundary as b WHERE (ST_Contains(b.geom,ST_GeomFromText('%s',%s))) AND b.id=%s" % (wkt, self.epsg, boundaryID))        
-						#if the current linestring is contained within the study boundary polygon then add to SQL command list
-						if len(self.cur.fetchall()) != 0:
-							sql = sql + "I %s (id,geom) VALUES (%s,ST_GeomFromText('%s',%s));\n" % (tablename,n+1, wkt, self.epsg)                             
-							n += 1
-					else:
-						i += 1
-
-    
-                feature.Destroy()
-            
-            print "Number of building POLYGON footprints imported = %s" % n
-            print "Number of building MULTIPOLYGON footprints NOT imported = %s" % m
-            print "Number of invalid geometries = %s" % i
-            
-            if (sql != ""):
-                self.cur.execute(sql)
-                print "Creating spatial index on %s...." % tablename
-                self.cur.execute("CREATE INDEX %s_idx ON %s USING GIST (geom);" % (tablename, tablename))
-
-                self.conn.commit()
-
-    
-            datasource_in.Destroy()
-
-        
-            return n
-        
-        else: 
-            print "Table: %s table already full." % (tablename)
-            return n
-
-
-    def grid_buildings(self, filename = 'triangle.poly', bounding_polygon_name = '', epsgOUT=4326,  holes = True):
-     
-        '''
-        Create a grid with the buildings in this database using Triangle.c
-        
-        INPUT: bounding_polygon_name - The name of the bounding polygon (i.e. 'name' 
-                                    in table 'areas')
-           holes: True (default) if buildings are to be holes, False if buildings are
-                  to be gridded
-            
-           epsgOUT:  the srs of the Triangle.c mesh
-            
-        
-        This function extracts the buildings that lie within the input bounding polygon
-        (boundary_polygon_name) and sets up triangle.c control files.
-        '''
-    
-        if (bounding_polygon_name == ''):
-            print 'ERROR: Invalid polygon name'
-            return -1
-        
-        
-        outfile = open(filename, "w")    
-
-        #self.cur.execute("SELECT (id,ST_AsText(geom)) FROM areas WHERE name='%s';" % (boundary_polygon_name))
-        self.cur.execute("SELECT geom FROM areas WHERE name='%s';" % (bounding_polygon_name))        
-        boundingPolyST = self.cur.fetchall() 
-        boundingPolyST = boundingPolyST[0]        
-        
-        self.cur.execute("SELECT ST_AsText(geom) FROM areas WHERE name='%s';" % (bounding_polygon_name))        
-        boundingPolyTXT = self.cur.fetchall() 
-        boundingPolyTXT = boundingPolyTXT[0][0]
-        
-        #get the building footprints and a point inside for all buildings that
-        #are inside the bounding polygon
-   
-        #NOTE: ERROR in ST_PointOnSurface() function due to self intersection polygon in the buildings table
-        #see: http://postgis.refractions.net/pipermail/postgis-users/2010-August/027487.html
-        #fixed problem by deleting the invalid geometry.
-        
-    
-        self.cur.execute("SELECT b.id, ST_AsText(b.geom), ST_AsText(ST_PointOnSurface(b.geom)) FROM buildings AS b \
-                        WHERE (ST_Contains('%s',b.geom)) ORDER BY b.id;" % (boundingPolyST))
-        buildings = self.cur.fetchall()
-         
-        buildingsList = []
-        buildingsPtsInside = []
-        
-        #Convert the building polygons from TXT to python list
-        for b in buildings:
-            
-            i = b[2].find('POINT(')
-            j = b[2].find(')')
-            pointInside = b[2][i+6:j]
-            pointInside = pointInside.replace(',',' ').split()
-            buildingsPtsInside.append(pointInside)            
-            i = b[1].find('POLYGON((')
-            j = b[1].find('))')
-            pts = b[1][i+9:j]
-            pts = pts.replace(',',' ').split()
-            i = 0
-            polygon = []
-            while i < len(pts):
-                polygon.append([float(pts[i]), float(pts[i+1])])
-                i += 2      
-            polygon.pop()                                                           #remove repeated last item in building polygons
-            polygon = self._convert_points_(polygon,self.epsg,epsgOUT)              #convert to target SRS
-            buildingsList.append(polygon)
-
-        buildingsPtsInside = self._convert_points_(buildingsPtsInside,self.epsg,epsgOUT) 
-        #convert the bounding polygon from TXT to python list
-        i = boundingPolyTXT.find('POLYGON((')
-        j = boundingPolyTXT.find('))')
-        pts = boundingPolyTXT[i+9:j]
-        pts = pts.replace(',',' ').split()       
-
-        i=0
-        boundingPoly = []
-        while i < len(pts):
-            boundingPoly.append([float(pts[i]), float(pts[i+1])])
-            i += 2  
-        
-        boundingPoly.pop()                                                          #remove repeated last item in polygon
-        boundingPoly = self._convert_points_(boundingPoly,self.epsg,epsgOUT)        #convert to target SRS
-
-      
-        numVerticies = len(boundingPoly)
-        numHoles = len(buildingsList)
-
-        for b in buildingsList:
-            numVerticies = numVerticies + len(b)
-        
-        outfile.write("%s 2 0 1\n" % (str(numVerticies)))
-        
-        
-        segments = []
-        #write the vertices in the building and bounding polygon lists
-        i = 1
-        for pt in boundingPoly:
-            #ptYshift = float(pt[1]) - 5000000
-            outfile.write("%s   %s    %s   1\n" % (str(i), pt[0], pt[1]))
-            if i != len(boundingPoly):
-                segments.append([i,i+1,1])
-                
-            else:
-                index = i - len(boundingPoly) + 1
-                segments.append([i,index, 1])
-            
-            i += 1
-    
-        polyIndex = 2
-        for poly in buildingsList:
-            lengthPoly = len(poly)
-            j = 1
-            for pt in poly:
-                #ptYshift = float(pt[1]) - 5000000
-                outfile.write("%s   %s    %s    %s\n" % (str(i), pt[0], pt[1], str(polyIndex)))
-               
-                if j != lengthPoly:
-                    segments.append([i,i+1,polyIndex])
-                    
-                else:
-                    index = i - lengthPoly + 1
-                    segments.append([i,index,polyIndex])
-                
-                j += 1
-                i += 1
-            
-            polyIndex += 1            
-        
-        #write the segements
-        outfile.write("%s 1\n" % (str(len(segments))))
-        i = 1
-        for seg in segments:
-            outfile.write("%s   %s   %s   %s\n" % (str(i), str(seg[0]), str(seg[1]), str(seg[2])))
-            i += 1
-    
-    
-        #write the holes
-        if(holes == True):
-            outfile.write("%s\n" % (str(len(buildingsPtsInside))))
-            i = 1
-            for pt in buildingsPtsInside:
-                #ptYshift = float(pt[1]) - 5000000
-                outfile.write("%s   %s   %s\n" % (str(i), str(pt[0]), str(pt[1])))
-                i += 1
         else:
-            outfile.write("0\n")
-    
-    
-        
-        outfile.close()
-        
-        print len(buildingsPtsInside)
-        print len(buildingsList)
-        print buildingsPtsInside[0]
-        print buildingsList[0]
+            print "ERROR: No footprints in requested area"
+            return -1;
 
-
-    def copy_record(self,tablename = 'areas',id = 1):
-        '''
-        Creates a copy of the geom with supplied 'id' in table 'tablename'
-        
-        INSERTS the geometry back into the supplied table 'tablename'
-        
-        
-        '''
-        
-        #get the highest pkey value and set the new record to one larger
-        self.cur.execute("SELECT pkey FROM %s ORDER BY pkey;" % (tablename))
-        ids = self.cur.fetchall() 
-        pkeyNew =  ids[len(ids)-1][0] + 1
-        
-        self.cur.execute("SELECT ST_AsText(geom) FROM %s WHERE id=%s;" % (tablename, id))        
-        geom = self.cur.fetchall() 
-        geom = geom[0][0]
-        self.cur.execute("INSERT INTO %s (pkey,id,geom,name) VALUES (%s, %s, ST_GeomFromText('%s',%s), 'copy');" % (tablename,pkeyNew,pkeyNew, geom, self.epsg))     
-        self.conn.commit()
-        
 
 
 

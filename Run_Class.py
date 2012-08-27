@@ -204,7 +204,7 @@ class RunClass:
 
 
 
-    def add_building_output_locations(self,area_id,start,end,step,holes=True):
+    def add_building_output_locations(self,area_id,start,end,step,type='BUILDINGS_AS_HOLES'):
         """
         For each of node,element and side corresponding to the buildings in the grid,
         request output
@@ -213,12 +213,14 @@ class RunClass:
             area_id - id of the area polygon that you want to get the info inside
             start: iteration # where output should start
             end: iteration # where output should end
-        
+            type:   BUILDINGS_AS_HOLES
+                    BUILDINGS_AS_POINTS
+                    BUILDINGS_GRIDDED
         
         """ 
         print "Getting buildings locations..."
         
-        dictionary = self.grid.get_building_output_locations(area_id,holes)
+        dictionary = self.grid.get_building_output_locations(area_id,type)
         if (dictionary != {}):
             self.run_nc.add_building_output_locations(dictionary, start, end,step)
 
@@ -229,7 +231,10 @@ class RunClass:
         request output
         
         Input:
-            areasList - list of areas and corresponding building types (i.e. gridded (False) or as holes (True))
+            areasList - list of areas and corresponding building types:
+                    type:   BUILDINGS_AS_HOLES
+                            BUILDINGS_AS_POINTS
+                            BUILDINGS_GRIDDED
             start: iteration # where output should start
             end: iteration # where output should end
         
@@ -240,17 +245,9 @@ class RunClass:
         dictionaries = []
         dictionary = {}
         
-        self.grid.init_building_output_tables()
         for a in areasList:
-            type = True
-            if a[1] == 'BUILDINGS_AS_HOLES':
-                type = True
-            elif a[1] == 'BUILDINGS_GRIDDED':
-                type = False
-            else:
-                type = True
                 
-            dictionaries.append(self.grid.get_building_output_locations(a[0],type))
+            dictionaries.append(self.grid.get_building_output_locations(a[0],a[1]))
        
         for dict in dictionaries:
             for row in dict.iteritems(): 
@@ -307,13 +304,12 @@ class RunClass:
         
         """ 
         
-        
         if (key_points != []) and (len(key_points[0]) == 4):    #check if the key point array is valid
 
             if self.keyPointsAdded == False:                    #check if key points have already been added
                 
-                elementIds, distanceElements = self.grid.get_element_output_locations(key_points,epsgIN)
-                nodeIds, distanceNodes = self.grid.get_node_output_locations(key_points,epsgIN)
+                elementIds, distanceElements = self.grid.get_closest_elements(key_points,epsgIN)
+                nodeIds, distanceNodes = self.grid.get_closest_nodes(key_points,epsgIN)
 
                 
                 i = 0 
@@ -835,7 +831,18 @@ class RunNC:
                 e = row[1]['elements']
                 s = row[1]['sides']
                 perimeter.append(row[1]['perimeter'])
-                type.append(row[1]['type'])                 #type=1 (Building is hole in grid), type=0 (building is gridded)
+                
+                if row[1]['type'] == "BUILDINGS_AS_HOLES":
+                    typeNUM = 1
+                elif row[1]['type'] == "BUILDINGS_GRIDDED":
+                    typeNUM = 2
+
+                elif row[1]['type'] == "BUILDINGS_AS_POINTS":
+                    typeNUM = 3
+                else:
+                    typeNUM = 0
+                type.append(typeNUM)
+                
                 nodesAll.extend(n)
                 elementsAll.extend(e)
                 sidesAll.extend(s)
@@ -848,8 +855,10 @@ class RunNC:
             nodesAll = list(set(nodesAll))
             elementsAll = list(set(elementsAll))
             sidesAll = list(set(sidesAll))
-            
+                        
             print "# elements = %s" % len(elementsAll)
+            print "# sides = %s" % len(sidesAll)
+            print "# nodes = %s" % len(nodesAll)
 
             
             #initialise arrays for entry into netcdf file
@@ -892,14 +901,15 @@ class RunNC:
                 building_wkt = self.buildings.variables['building_wkt']            
                 print "WARNING: %s" % e
 
-            try: building_perimeter = self.buildings.createVariable(varname = 'building_perimeter',datatype = 'i', dimensions=('number_of_buildings',)) 
+            try: building_perimeter = self.buildings.createVariable(varname = 'building_perimeter',datatype = 'd', dimensions=('number_of_buildings',)) 
             except Exception, e:
-                building_wkt = self.buildings.variables['building_perimeter']            
+                building_perimeter = self.buildings.variables['building_perimeter']            
                 print "WARNING: %s" % e
 
-            try: building_type = self.buildings.createVariable(varname = 'building_type',datatype = 'd', dimensions=('number_of_buildings',)) 
+
+            try: building_type = self.buildings.createVariable(varname = 'building_type',datatype = 'i', dimensions=('number_of_buildings',)) 
             except Exception, e:
-                building_wkt = self.buildings.variables['building_type']            
+                building_type = self.buildings.variables['building_type']            
                 print "WARNING: %s" % e
 
             try: building_nodes = self.buildings.createVariable(varname = 'building_nodes',datatype = 'i', dimensions=('number_of_buildings','max_number_nodes',)) 
