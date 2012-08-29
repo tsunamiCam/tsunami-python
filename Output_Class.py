@@ -142,6 +142,20 @@ class ReadOutput:
             self.element_ids_dict[id] = i
             i+=1 
 
+
+    def add_max_building_values_to_database(self):
+        
+        for building in self.buildings_dict.iteritems():      
+            id = building[0]
+            nodes = building[1]['nodes']
+            sides = building[1]['sides']
+            elements = building[1]['elements']
+            perimeter = building[1]['perimeter']
+
+            elements = self.buildings_dict[id]['elements']
+            sides = self.buildings_dict[id]['sides']
+            perimeter = self.buildings_dict[id]['perimeter']
+
     def get_output_at_building(self,id):
         
         '''

@@ -2277,12 +2277,7 @@ class GridPG:
                         
                     if( len(building_nodes) > 0 or len(building_sides) > 0 or len(building_elements) > 0):
                         
-                        if holes == True:
-                            dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':type}     #building is HOLE in Grid
-                        else:
-                            dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':type}     #building is Gridded in mesh
-                            
-                        
+                        dictionary[id] = {'nodes': [], 'elements': [], 'sides': [], 'perimeter': float(b[2]), 'type':type}
                         if(building_nodes != []):
                             dictionary[id]['nodes'] = building_nodes           #add to dictionary                   
                         if(building_sides != []):                    
