@@ -1204,6 +1204,7 @@ class GridPG:
             #Create spatial index for the node table
             self.cur.execute("CREATE INDEX nodes_idx ON nodes USING GIST (geom);")
 
+            '''
             print "Getting building elevations..."
 
             self.cur.execute("SELECT id, geom,ST_Perimeter(geom),ST_X(ST_Centroid(geom)),ST_Y(ST_Centroid(geom)) FROM buildings;")
@@ -1228,6 +1229,8 @@ class GridPG:
                 self.cur.execute("UPDATE buildings SET elevation = %s WHERE id = %s" % (elevations[i],id))
                 i+=1
     
+            '''
+            
             print "Adding elements..."
 
             #add the elements to the database
@@ -1809,6 +1812,11 @@ class GridPG:
 
         
         """
+        
+        self.cur.execute("DROP TABLE IF EXISTS buildings_no_edges;")
+        self.cur.execute("CREATE TABLE buildings_no_edges (building_id int4);")    
+        self.cur.execute("SELECT AddGeometryColumn('buildings_no_edges', 'geom', %s, 'POLYGON', 2);" % self.epsg) 
+        
         outfile = open('NodesAtBuildings_code2_v2.ngh',"w")
         nodes_at_buildings = []
         nodes_all = []
@@ -1842,7 +1850,7 @@ class GridPG:
             if (a != ""):                           #check if a VALID area geometry has been found in areas table       
         
                 #SELECT all the buildings that are inside the area polygon
-                self.cur.execute("SELECT b.id, ST_AsText(b.geom) FROM buildings AS b \
+                self.cur.execute("SELECT b.id, ST_AsText(b.geom), geom FROM buildings AS b \
                                     WHERE ST_Contains(ST_GeomFromText('%s',%s),b.geom) ORDER BY b.id;" % (a,self.epsg))
                 buildings = self.cur.fetchall() 
                 print "Number of Buildings = %s" % len(buildings)
@@ -1874,7 +1882,7 @@ class GridPG:
                     line_string = line_string + "%s %s)" % (pts[i], pts[i+1])   
                     
                     #print b[1]
-                    print line_string                
+                    #print line_string                
                     
                     id = int(b[0])
                     #p1 = self._offset_polygon2_(b[1],0.5)
@@ -1904,13 +1912,13 @@ class GridPG:
 
                     r_nodes = self.cur.fetchall()
                     
-                    
-                    #if len(r_nodes) == 0:
-                    
                     if (len(r_nodes) < 4):
+                        
+                        self.cur.execute("INSERT INTO buildings_no_edges (building_id,geom) VALUES (%s,ST_Geometry('%s'));" % (id,b[2]))
+
+                        
                         print "ID = %s, L = %s *****************    " % (id, len(r_nodes))
-                    else:
-                        print "ID = %s, L = %s" % (id, len(r_nodes))
+
                         
     
                     for n in r_nodes:
@@ -1958,6 +1966,8 @@ class GridPG:
 #        for n in r_nodes:
 #            nodes_all.append([n[0],n[1]])      
 #            
+        self.conn.commit()       
+
         return nodes_all,nodes_at_buildings
 
 

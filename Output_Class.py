@@ -42,7 +42,10 @@ class ReadOutput:
             sys.exit()
     
         run_id = getattr(self.run_dataset,"run_id")          
-        grid_dbname = getattr(self.run_dataset,"grid_dbname")          
+        grid_dbname = getattr(self.run_dataset,"grid_dbname") 
+        
+        if grid_dbname == "Yuriage1a":
+            grid_dbname = "Yuriage1"
         grid_db_epsg = getattr(self.run_dataset,"grid_db_epsg")          
         buildings_dbname = getattr(self.run_dataset,"buildings_dbname")          
         name = getattr(self.run_dataset,"name")          
@@ -107,6 +110,7 @@ class ReadOutput:
         building_nodes = self.buildings_grp.variables['building_nodes'][:]
         building_elements = self.buildings_grp.variables['building_elements'][:]
         building_sides = self.buildings_grp.variables['building_sides'][:]
+        building_type = self.buildings_grp.variables['building_type'][:]
         
         i = 0
         for id in building_id:    
@@ -116,12 +120,33 @@ class ReadOutput:
             for n in building_nodes[i]:
                 self.elevation[n-1]
                 zAvg = zAvg + self.elevation[n-1]    
-            zAvg = zAvg/len(building_nodes[i]) 
+            zAvg = zAvg/len(building_nodes[i])
             
-            self.buildings_dict[id] = {'nodes': building_nodes[i].tolist(), 'elements': building_elements[i].tolist(),
-                                        'sides': building_sides[i].tolist(), 'perimeter': building_perimeter[i], 'elevation':zAvg}
-            
+            nodes = building_nodes[i].tolist()
+            j = len(nodes) - 1
+            while j >= 0:
+                if nodes[j] == 0:
+                    nodes.pop(j)
+                j =j-1
 
+
+            elements = building_elements[i].tolist()
+            j = len(elements) - 1
+            while j >= 0:
+                if elements[j] == 0:
+                    elements.pop(j)
+                j =j-1
+                
+            sides = building_sides[i].tolist()
+            j = len(sides) - 1
+            while j >= 0:
+                if sides[j] == 0:
+                    sides.pop(j)
+                j =j-1                
+            
+            self.buildings_dict[id] = {'nodes': nodes, 'elements': elements,
+                                        'sides': sides, 'perimeter': building_perimeter[i], 'elevation':zAvg, 'type': building_type[i]}
+            
             i+=1
         
         side_ids = self.building_sides_grp.variables['id'][:]
@@ -143,7 +168,28 @@ class ReadOutput:
             i+=1 
 
 
+
+
     def add_max_building_values_to_database(self):
+        '''
+        Add the max values at each building to the PostGIS database for the grid
+
+    
+        '''       
+        
+        try: self.grid_pg.cur.execute("ALTER TABLE buildings ADD COLUMN etamax_nodes float;")
+        except: print "Column already exists."
+        try: self.grid_pg.cur.execute("ALTER TABLE buildings ADD COLUMN speedmax_nodes float;")
+        except: print "Column already exists."
+        
+        try: self.grid_pg.cur.execute("ALTER TABLE buildings ADD COLUMN exposure float;")
+        except: print "Column already exists."
+        
+        self.grid_pg.conn.commit()
+        
+        
+        etamaxNodesALL = self.building_nodes_grp.variables['eta_max'][:]            
+        speedmaxNodesALL = self.building_nodes_grp.variables['speed_max'][:]    
         
         for building in self.buildings_dict.iteritems():      
             id = building[0]
@@ -151,11 +197,47 @@ class ReadOutput:
             sides = building[1]['sides']
             elements = building[1]['elements']
             perimeter = building[1]['perimeter']
+            type = building[1]['type']
+            
+            #get the node output
+            etamax = 0
+            speedmax = 0
+            exposure = 0
+    
+            for n in nodes:
+                z = self.elevation[n-1]
+                
+                '''
+                eta = etamaxNodesALL[self.node_ids_dict[n]] - z
+                speed = speedmaxNodesALL[self.node_ids_dict[n]]
 
-            elements = self.buildings_dict[id]['elements']
-            sides = self.buildings_dict[id]['sides']
-            perimeter = self.buildings_dict[id]['perimeter']
+                if etamax < eta:
+                    etamax = eta
+                if speedmax < speed:
+                    speedmax = speed
+                
+                '''
+                                    
+                etamax = etamax + (etamaxNodesALL[self.node_ids_dict[n]] - z)
+                speedmax = speedmax + speedmaxNodesALL[self.node_ids_dict[n]]
 
+            if len(nodes) > 0:
+                #calculate the average values
+                etamax = etamax/len(nodes)
+                speedmax = speedmax/len(nodes)
+                exposure = (etamax + speedmax) / 2
+    
+                
+                self.grid_pg.cur.execute("UPDATE buildings SET etamax_nodes = %s WHERE id = %s;" % (etamax,id))
+                self.grid_pg.cur.execute("UPDATE buildings SET speedmax_nodes = %s WHERE id = %s;" % (speedmax,id))
+                self.grid_pg.cur.execute("UPDATE buildings SET exposure = %s WHERE id = %s;" % (exposure,id))
+
+        
+        self.grid_pg.conn.commit()
+
+
+
+    
     def get_output_at_building(self,id):
         
         '''
@@ -319,7 +401,7 @@ class ReadOutput:
                         speedMax = speed
 
 
-                    speedAvgWeighted = speed    AvgWeighted + speed*(self.slen[s-1])/perimeter
+                    speedAvgWeighted = speedAvgWeighted + speed*(self.slen[s-1])/perimeter
                     uWeighted = uWeighted + u*(self.slen[s-1])/perimeter
                     vWeighted = vWeighted + v*(self.slen[s-1])/perimeter
                     
