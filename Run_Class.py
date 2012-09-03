@@ -79,10 +79,10 @@ class RunClass:
         '''  
         self.form_drag_elements = []				#list of form drag elements and corresponding element codes
         self.number_of_drag_types = 0
-        self.drag_parameters = []				#Form Drag parameters list - each row in the list corresponds to a different element type
+        self.drag_parameters = []				    #Form Drag parameters list - each row in the list corresponds to a different element type
         self.ifdrag = 0								#Form drag type - 0 = no drag
-        
-        
+        self.buildings_drag_dict = {}
+        self.set_drag_collapse = False
         #TEST: Alter element adjacency matrix
         #self.ieadj = self.grid.grid_nc.get_grid_ieadj()
         #print "SIZE if ieadj = %s" % len(self.ieadj)
@@ -134,6 +134,8 @@ class RunClass:
         #write the drag elements and parameters to FD2dInit.dat
         dragfile = open(self.run_dir + "/FD2dInit.dat","w")
         
+        
+        
         dragfile.write("%s\n" % self.number_of_drag_types)
         for fd in self.drag_parameters:
             dragfile.write("%s %s %s %s\n" % (fd[0],fd[1],fd[2],fd[3]))
@@ -141,6 +143,8 @@ class RunClass:
         dragfile.write("%s\n" % len(self.form_drag_elements))
         for ele in self.form_drag_elements:
             dragfile.write("%s %s\n" % (ele[0],ele[1])) 
+        
+        self.run_nc.add_building_drag_definitions(self.buildings_drag_dict,self.set_drag_collapse)
         
         dragfile.close()       
 
@@ -543,6 +547,7 @@ class RunClass:
         
         area_id - the id (in the postgis table) of the target area
         element_code - target element code of elements in the areas
+
         
         NOTE: 	The element_code must correspond to an element code number in the drag_parameters list
         		and the friction parameters list
@@ -561,20 +566,25 @@ class RunClass:
         if dragDefined:
             elements_in_area = self.grid.get_elements_in_area(area_id)              #get all elements in the area
             for el in elements_in_area:                                             #save elements to the form_drag_elements array
-                self.form_drag_elements.append([el[0],element_code])         
+                self.form_drag_elements.append([el[0],element_code])        
         else:
             print "Given element_code is is not defined in the drag_parameters list. Exiting..."
             sys.exit()
         
 
 
-    def set_form_drag_inside_buildings(self, area_id, element_code):
+
+    def set_form_drag_inside_buildings2(self, areasList, set_drag_collapse = False):
         """
         Set the drag for elements inside the building areas
         
         area_id - the id (in the postgis table) of the target area
         element_code - target element code of elements in the areas
-        
+        collapseFlag: False - drag areas will remain at specified value for the entire model run
+                      True - drag areas will be set to zero at a specified water height
+        collapse_height: the flood depth of the water that will cause a collapse of a building
+
+
         NOTE:     The element_code must correspond to an element code number in the drag_parameters list
                 and the friction parameters list
                 
@@ -583,6 +593,82 @@ class RunClass:
                 
         """
         
+        
+        #get all the buildings defined in the grid
+        building_ids = self.grid.grid_pg.get_building_ids()
+        self.buildings_drag_dict = {}
+        
+        self.set_drag_collapse = set_drag_collapse
+
+        for id in building_ids:
+            self.buildings_drag_dict[id] = {'drag_code': 0, 'drag_elements': [], 'drag_collapse': 0, 'collapse_height': 0}
+        
+        for a in areasList:
+            area_id = a[0]
+            element_code = a[1]
+
+            if set_drag_collapse == True:
+                drag_collapse = a[2]
+                collapse_height = a[3]
+            else:
+                collapseFlag = False
+                collapse_height = 0
+
+
+
+
+            elements_in_area = []
+            #ERROR Checking
+            dragDefined = False
+            for fd in self.drag_parameters:
+                if fd[0] == element_code:
+                    dragDefined = True
+            
+            #if the element code is defined in the drag_parameters list
+            if dragDefined:
+                elements_in_area,buildings_element_dict = self.grid.get_elements_inside_buildings(area_id)           #get all elements in the area
+                
+                for row in buildings_element_dict.iteritems(): 
+                    id = row[0]
+                    
+                    self.buildings_drag_dict[id]['drag_code'] = element_code   
+                    self.buildings_drag_dict[id]['drag_elements'] = row[1]['drag_elements']       
+                    self.buildings_drag_dict[id]['drag_collapse'] = drag_collapse      
+                    self.buildings_drag_dict[id]['collapse_height'] = collapse_height     
+                    
+                for el in elements_in_area:                                                                  #save elements to the form_drag_elements array
+                    self.form_drag_elements.append([el[0],element_code])         
+            else:
+                print "Given element_code is is not defined in the drag_parameters list. Exiting..."
+                sys.exit()
+
+        
+        return len(elements_in_area)
+
+
+
+    def set_form_drag_inside_buildings(self, area_id, element_code,collapseFlag = False, collapse_height = 2.0):
+        """
+        Set the drag for elements inside the building areas
+        
+        area_id - the id (in the postgis table) of the target area
+        element_code - target element code of elements in the areas
+        collapseFlag: False - drag areas will remain at specified value for the entire model run
+                      True - drag areas will be set to zero at a specified water height
+        collapse_height: the flood depth of the water that will cause a collapse of a building
+
+
+        NOTE:     The element_code must correspond to an element code number in the drag_parameters list
+                and the friction parameters list
+                
+                Drag definitions can be assigned multiple time to an element, however, only
+                the last defined code will be used for computations in RiCOM
+                
+        """
+
+
+
+
         elements_in_area = []
         #ERROR Checking
         dragDefined = False
@@ -716,7 +802,15 @@ class RunNC:
         except Exception, e:
             print "WARNING: %s" % e            
             self.building_sides = self.buildings.groups['sides']
-        
+  
+  
+  
+        #Create the FORM DRAG group
+        try: self.form_drag = self.dataset.createGroup('form_drag')
+        except Exception, e:
+            print "WARNING: %s" % e
+            self.form_drag = self.dataset.groups['form_drag']
+      
         
         
         self.building_nodes.eta_output_added = 0
@@ -793,6 +887,90 @@ class RunNC:
         
         self.dataset = Dataset(self.run_filename,'r',format='NETCDF4')      
     
+
+    def add_building_drag_definitions(self,buildings_drag_dict,set_drag_collapse = False):
+        """
+        Add the building drag definitions to the Netcdf Run file
+        
+        """
+        
+        building_id = []
+        drag_code = []
+        drag_elements = []
+        collapse = []
+        collapse_height = [] 
+        max_number_elements = 0       
+
+        for row in buildings_drag_dict.iteritems(): 
+            code = row[1]['drag_code']
+            if code != 0:
+                building_id.append(row[0])              
+                drag_code.append(row[1]['drag_code'])
+                drag_elements.append(row[1]['drag_elements'])
+                collapse.append(row[1]['drag_collapse'])
+                collapse_height.append(float(row[1]['collapse_height']))
+                if max_number_elements < len(row[1]['drag_elements']): max_number_elements = len(row[1]['drag_elements'])
+
+  
+        #ADD Attibutes
+        self.form_drag.set_drag_collapse = int(set_drag_collapse)
+
+
+        #create dimensions
+        try: self.form_drag.createDimension('max_number_elements',max_number_elements)
+        except Exception, e: print "WARNING: %s" % e
+        try: self.form_drag.createDimension('number_of_buildings',len(building_id))
+        except Exception, e: print "WARNING: %s" % e        
+        
+        
+        #initialise arrays for entry into netcdf file
+        elements = zeros((len(building_id),max_number_elements))
+        
+        i = 0
+        for row in drag_elements:    
+            elements[i,0:len(row)] = row
+            i+=1          
+        
+        print drag_elements[len(building_id)-1]
+
+
+        #create variables
+        try: building_id_nc = self.form_drag.createVariable(varname = 'building_id',datatype = 'i', dimensions=('number_of_buildings',)) 
+        except Exception, e:
+            building_id_nc = self.form_drag.variables['building_id']
+            print "WARNING: %s" % e     
+            
+            
+        try: drag_elements_nc = self.form_drag.createVariable(varname = 'drag_elements',datatype = 'i', dimensions=('number_of_buildings','max_number_elements',)) 
+        except Exception, e:
+            drag_elements_nc = self.form_drag.variables['drag_elements']
+            print "WARNING: %s" % e  
+        
+
+        try: drag_code_nc = self.form_drag.createVariable(varname = 'drag_code',datatype = 'i', dimensions=('number_of_buildings',)) 
+        except Exception, e:
+            drag_code_nc = self.form_drag.variables['drag_code']
+            print "WARNING: %s" % e  
+            
+        try: collapse_nc = self.form_drag.createVariable(varname = 'drag_collapse',datatype = 'i', dimensions=('number_of_buildings',)) 
+        except Exception, e:
+            collapse_nc = self.form_drag.variables['drag_collapse']
+            print "WARNING: %s" % e  
+        
+    
+        try: collapse_height_nc = self.form_drag.createVariable(varname = 'collapse_height',datatype = 'd', dimensions=('number_of_buildings',)) 
+        except Exception, e:
+            collapse_height_nc = self.form_drag.variables['collapse_height']
+            print "WARNING: %s" % e      
+
+        drag_elements_nc[:] = elements
+        building_id_nc[:] = array(building_id) 
+        drag_code_nc[:] = array(drag_code)
+        collapse_nc[:] = array(collapse)    
+        collapse_height_nc[:] = array(collapse_height)
+        
+        
+
     def add_building_output_locations(self,dictionary, start,end,step):
         """
         Get id's of the nodes, elements and sides that are inside the buildings polygons

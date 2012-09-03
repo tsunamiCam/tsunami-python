@@ -1052,9 +1052,32 @@ class GridPG:
         '''
         self.cur.execute("DROP TABLE IF EXISTS buildings;")
     
-    
-    
+    def add_building_results_table(self,new_tablename):
+        """
+        Make a copy of the base buildings table to which results of a model run are added to.
+        """
+        self.cur.execute("DROP TABLE IF EXISTS %s;" % new_tablename)
+        self.cur.execute("CREATE TABLE %s (id int4);" % new_tablename)     
+        self.cur.execute("SELECT AddGeometryColumn('%s', 'geom', %s, 'POLYGON', 2);" % (new_tablename,self.epsg))
+        self.cur.execute("ALTER TABLE %s ADD COLUMN etamax_nodes float;" % new_tablename)
+        self.cur.execute("ALTER TABLE %s ADD COLUMN fdmax_nodes float;" % new_tablename)
+        self.cur.execute("ALTER TABLE %s ADD COLUMN speedmax_nodes float;" % new_tablename)        
+        self.cur.execute("ALTER TABLE %s ADD COLUMN exposure float;" % new_tablename)
+        self.cur.execute("ALTER TABLE %s ADD COLUMN z float;" % new_tablename)
 
+        self.conn.commit()
+    
+        self.cur.execute("SELECT id,geom FROM buildings;") 
+        buildings = self.cur.fetchall() 
+        
+             
+        for b in buildings:
+            self.cur.execute("INSERT INTO %s (id,geom) VALUES (%s,ST_Geometry('%s'));" % (new_tablename,b[0],b[1]))
+        
+        self.conn.commit()
+
+        
+            
     def add_buildings_from_db(self,buildings_dbname, epsgOUT, user='tbone'):
         """
         Copy the building table from 'buildings_dbname' to this grid database
@@ -1565,6 +1588,23 @@ class GridPG:
 		
 		return footprintsList
 
+
+    def get_building_ids(self):
+        """
+        Returns a list of the building ids defined in the domain
+        """     
+
+        self.cur.execute("SELECT id FROM buildings;")
+        buildings_ids = []
+        
+        buildings = self.cur.fetchall() 
+        
+        for b in buildings:
+            buildings_ids.append(b[0])
+        
+        return buildings_ids
+
+
     def get_closest_elements(self, xy, epsgIN):
         """
         Given a list of points [x,y], return a list of ids corresponding to the element that 
@@ -1750,11 +1790,13 @@ class GridPG:
         self.conn.commit()       
 
         elements = []
+        elements_building = []
+        buildings_dict = {}
         
         if area_id == 0:
             #search the entire domain
                 
-            print "Get_elements_inside_buildings: Invalide area_id = 0"
+            print "Get_elements_inside_buildings: Invalid area_id = 0"
 
 
                             
@@ -1769,6 +1811,9 @@ class GridPG:
                 buildings = self.cur.fetchall() 
  
                 for b in buildings:
+                    
+                    elements_building = []
+
                     id = int(b[0])
                     p = self._offset_polygon2_(b[1],0.1)
                 
@@ -1790,8 +1835,10 @@ class GridPG:
                                     
                     for el in r_elements:
                         elements.append([el[0],el[1]])
+                        elements_building.append(el[0])
                         self.cur.execute("INSERT INTO drag_elements (id,geom) VALUES (%s,ST_Geometry('%s'));" % (el[0],el[2]))
-
+                    
+                    buildings_dict[id] = {'drag_elements': elements_building}
                         
                         
             else:
@@ -1800,9 +1847,58 @@ class GridPG:
         
         self.conn.commit()       
 
-        return elements
+        return elements,buildings_dict
 
 
+    def get_nodes_at_building_edge(self,building_id):
+        """
+        
+        
+        Given a building_id returns all the nodes that are on the edge of the building
+        
+        """
+
+
+
+ 
+
+        self.cur.execute("SELECT ST_AsText(geom), ST_X(ST_Centroid(geom)), ST_Y(ST_Centroid(geom)) FROM buildings WHERE id=%s;" % building_id)
+        b = self.cur.fetchall()[0]
+        
+        polygon = b[0]
+
+        radius = 1000
+        x = float(b[1])
+        y = float(b[2])
+        
+        boundingBOX = 'POLYGON((%s %s, %s %s, %s %s, %s %s))' % (x-radius,y-radius, x+radius,y-radius, x+radius, y+radius, x-radius, y-radius)    
+
+
+        i = polygon.find('POLYGON((')
+        j = polygon.find('))')
+        pts = polygon[i+9:j]
+        pts = pts.replace(',',' ').split()
+        i = 0
+        line_string = 'LINESTRING('                    
+        while i < len(pts)-2:
+            line_string = line_string + "%s %s," % (pts[i], pts[i+1])
+            i +=2
+        
+        line_string = line_string + "%s %s)" % (pts[i], pts[i+1]) 
+        
+                  
+        self.cur.execute("SELECT n.id, n.code FROM nodes AS n \
+                                WHERE ST_Contains(ST_GeomFromText('%s',%s),n.geom) AND \
+                                ST_Distance(ST_GeomFromText('%s',%s),n.geom) < 0.1;" % (boundingBOX,self.epsg,line_string,self.epsg))
+
+        r_nodes = self.cur.fetchall()
+
+        nodes = []
+        
+        for n in r_nodes:
+            nodes.append(n[0])
+        
+        return nodes
 
     def get_nodes_at_building_edges(self,area_id = 0):
         """

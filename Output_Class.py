@@ -170,23 +170,14 @@ class ReadOutput:
 
 
 
-    def add_max_building_values_to_database(self):
+    def add_max_building_values_to_database(self,new_tablename):
         '''
         Add the max values at each building to the PostGIS database for the grid
 
     
         '''       
         
-        try: self.grid_pg.cur.execute("ALTER TABLE buildings ADD COLUMN etamax_nodes float;")
-        except: print "Column already exists."
-        try: self.grid_pg.cur.execute("ALTER TABLE buildings ADD COLUMN speedmax_nodes float;")
-        except: print "Column already exists."
-        
-        try: self.grid_pg.cur.execute("ALTER TABLE buildings ADD COLUMN exposure float;")
-        except: print "Column already exists."
-        
-        self.grid_pg.conn.commit()
-        
+        self.grid_pg.add_building_results_table(new_tablename)
         
         etamaxNodesALL = self.building_nodes_grp.variables['eta_max'][:]            
         speedmaxNodesALL = self.building_nodes_grp.variables['speed_max'][:]    
@@ -204,33 +195,81 @@ class ReadOutput:
             speedmax = 0
             exposure = 0
     
+            speedNodes = []
+            etaNodes = []
+            flooddepthNodes = []
+            elevation = 0
+            
             for n in nodes:
                 z = self.elevation[n-1]
                 
                 '''
-                eta = etamaxNodesALL[self.node_ids_dict[n]] - z
-                speed = speedmaxNodesALL[self.node_ids_dict[n]]
-
                 if etamax < eta:
                     etamax = eta
-                if speedmax < speed:
-                    speedmax = speed
                 
                 '''
-                                    
-                etamax = etamax + (etamaxNodesALL[self.node_ids_dict[n]] - z)
-                speedmax = speedmax + speedmaxNodesALL[self.node_ids_dict[n]]
+                speed = speedmaxNodesALL[self.node_ids_dict[n]]
+                fd = etamaxNodesALL[self.node_ids_dict[n]] - z
+                eta = etamaxNodesALL[self.node_ids_dict[n]]
+                elevation = elevation + z 
 
+               # if speedmax < speed:
+               #     speedmax = speed
+               
+                speedNodes.append(speed)
+                etaNodes.append(eta) 
+                flooddepthNodes.append(fd)
+                #etamax = etamax + (etamaxNodesALL[self.node_ids_dict[n]] - z)
+                #speedmax = speedmax + speedmaxNodesALL[self.node_ids_dict[n]]
+
+            '''
+            if id == 295:
+                speedNodes.sort()
+                print speedNodes
+                
+                nodeEdge = self.grid_pg.get_nodes_at_building_edge(id)
+                speedEdge295 = []
+                for n in nodeEdge:
+                    speed = speedmaxNodesALL[self.node_ids_dict[n]]
+                    speedEdge295.append(speed)
+                speedEdge295.sort()
+                print speedEdge295
+                sys.exit()
+                    
+            '''
+            etaNodes.sort()
+            etaNodes.reverse()
+
+            speedNodes.sort()
+            speedNodes.reverse()    
+
+            flooddepthNodes.sort()
+            flooddepthNodes.reverse()
+            
+                    
             if len(nodes) > 0:
                 #calculate the average values
-                etamax = etamax/len(nodes)
-                speedmax = speedmax/len(nodes)
+#                speedmaxAVG = 0
+#                i = 0
+#                while i < len(nodes)/2:
+#                    speedmaxAVG = speedmaxAVG + speedNodes[i]
+#                    i+=1
+                    
+                #speedmax = speedmaxAVG/(i-1)
+                
+                #speedmax = speedmax/len(nodes)
+                #etamax = etamax/len(nodes)
+                etamax = etaNodes[0]
+                fdmax = flooddepthNodes[0]
+                speedmax = speedNodes[0]
                 exposure = (etamax + speedmax) / 2
     
-                
-                self.grid_pg.cur.execute("UPDATE buildings SET etamax_nodes = %s WHERE id = %s;" % (etamax,id))
-                self.grid_pg.cur.execute("UPDATE buildings SET speedmax_nodes = %s WHERE id = %s;" % (speedmax,id))
-                self.grid_pg.cur.execute("UPDATE buildings SET exposure = %s WHERE id = %s;" % (exposure,id))
+                elevation = elevation / len(nodes)
+                self.grid_pg.cur.execute("UPDATE %s SET etamax_nodes = %s WHERE id = %s;" % (new_tablename,etamax,id))
+                self.grid_pg.cur.execute("UPDATE %s SET fdmax_nodes = %s WHERE id = %s;" % (new_tablename,fdmax,id))
+                self.grid_pg.cur.execute("UPDATE %s SET speedmax_nodes = %s WHERE id = %s;" % (new_tablename,speedmax,id))
+                self.grid_pg.cur.execute("UPDATE %s SET exposure = %s WHERE id = %s;" % (new_tablename,exposure,id))
+                self.grid_pg.cur.execute("UPDATE %s SET z = %s WHERE id = %s;" % (new_tablename,z,id))
 
         
         self.grid_pg.conn.commit()
