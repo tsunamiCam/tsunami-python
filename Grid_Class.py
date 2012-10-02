@@ -1056,13 +1056,39 @@ class GridPG:
         """
         Make a copy of the base buildings table to which results of a model run are added to.
         """
+        
+
+        
+        
         self.cur.execute("DROP TABLE IF EXISTS %s;" % new_tablename)
         self.cur.execute("CREATE TABLE %s (id int4);" % new_tablename)     
         self.cur.execute("SELECT AddGeometryColumn('%s', 'geom', %s, 'POLYGON', 2);" % (new_tablename,self.epsg))
+    
+        self.cur.execute("ALTER TABLE %s ADD COLUMN s float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN m float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN g float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN f float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN so float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN mo float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN pc float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN prot_br float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN prot_nb float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN prot_sw float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN prot_w float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN damage int4 DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN comment varchar(128); \
+                ALTER TABLE %s ADD COLUMN visibility_before int4 DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN visibility_after int4 DEFAULT 0; \
+                ALTER TABLE %s ADD wall_height float DEFAULT 0;" % (new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,
+                                                                    new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,
+                                                                    new_tablename,new_tablename))  
+        
+
         self.cur.execute("ALTER TABLE %s ADD COLUMN etamax_nodes float;" % new_tablename)
         self.cur.execute("ALTER TABLE %s ADD COLUMN fdmax_nodes float;" % new_tablename)
         self.cur.execute("ALTER TABLE %s ADD COLUMN speedmax_nodes float;" % new_tablename)        
         self.cur.execute("ALTER TABLE %s ADD COLUMN exposure float;" % new_tablename)
+        self.cur.execute("ALTER TABLE %s ADD COLUMN fragility float;" % new_tablename)
         self.cur.execute("ALTER TABLE %s ADD COLUMN z float;" % new_tablename)
 
         self.conn.commit()
@@ -1070,13 +1096,36 @@ class GridPG:
         self.cur.execute("SELECT id,geom FROM buildings;") 
         buildings = self.cur.fetchall() 
         
-             
+         
+        #get the PTVA attributes for the Yuriage Google buildings table
+        try:
+            connTEMP = psycopg2.connect(database='yuriage_google', user=self.user)
+        
+        except Exception, e:
+            print e
+            sys.exit()
+              
+        curTEMP = connTEMP.cursor()
+        
         for b in buildings:
-            self.cur.execute("INSERT INTO %s (id,geom) VALUES (%s,ST_Geometry('%s'));" % (new_tablename,b[0],b[1]))
+            curTEMP.execute("SELECT s,m,g,f,so,mo,pc,prot_br,prot_nb,prot_sw, prot_w,damage,\
+                         visibility_before,visibility_after,wall_height FROM buildings WHERE id = %s;" % (b[0]))            
+            ptva = curTEMP.fetchall() 
+
+            p = ptva[0]
+
+            print len(p)
+            self.cur.execute("INSERT INTO %s (id,geom,s,m,g,f,so,mo,pc,prot_br,prot_nb,prot_sw, prot_w,damage,\
+                         visibility_before,visibility_after,wall_height) \
+                         VALUES ( \
+                         %s,ST_Geometry('%s'), \
+                         %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);" % (new_tablename,b[0],b[1],p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7],p[8],p[9],p[10],p[11],p[12],p[13],p[14]))
         
         self.conn.commit()
 
         
+        curTEMP.close()
+        connTEMP.close()   
             
     def add_buildings_from_db(self,buildings_dbname, epsgOUT, user='tbone'):
         """

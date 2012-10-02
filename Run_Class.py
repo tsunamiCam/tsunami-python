@@ -613,6 +613,7 @@ class RunClass:
             else:
                 collapseFlag = False
                 collapse_height = 0
+                drag_collapse = False
 
 
 
@@ -930,9 +931,6 @@ class RunNC:
         for row in drag_elements:    
             elements[i,0:len(row)] = row
             i+=1          
-        
-        print drag_elements[len(building_id)-1]
-
 
         #create variables
         try: building_id_nc = self.form_drag.createVariable(varname = 'building_id',datatype = 'i', dimensions=('number_of_buildings',)) 

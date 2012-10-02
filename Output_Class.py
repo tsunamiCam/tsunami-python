@@ -15,6 +15,11 @@ from osgeo import osr #@UnresolvedImport
 from Grid_Class import GridPG
 
 
+
+from scipy.special import erf
+from numpy import linspace, exp, sqrt
+
+
 #module to allow commands to be sent to the command line (i.e. Terminal)
 from subprocess import call
 from ctypes import byref, cdll
@@ -167,8 +172,23 @@ class ReadOutput:
             self.element_ids_dict[id] = i
             i+=1 
 
+    '''
 
+    def create_fraglility_curve(self,damage_level):
 
+       
+        connTEMP = psycopg2.connect(database='yuriage_google', user=user);
+        curTEMP = connTEMP.cursor()
+        
+        curTEMP.execute("SELECT id,s,m,g,f,so,mo,pc,prot_br,prot_nb,prot_sw, prot_w,comment,damage,\
+ 
+        buildings_google = curTEMP.fetchall() 
+
+        
+        
+        self.grid_pg.cur.execute("SELECT id FROM buildings WHERE damage='%s';" % (id1))        
+        a1 = self.grid_pg.cur.fetchall()[0][0]
+    '''
 
     def add_max_building_values_to_database(self,new_tablename):
         '''
@@ -263,12 +283,22 @@ class ReadOutput:
                 fdmax = flooddepthNodes[0]
                 speedmax = speedNodes[0]
                 exposure = (etamax + speedmax) / 2
+                #mu and sig from supprasi et al
+                #Try - Wooden house complete damage
+                #mu = 4.2243
+                #sig = 1.0159
+                #Wooden house - minor damage
+                mu = 2.4409
+                sig = 0.6409                
+                fragility = self.fragility(fdmax,mu,sig)
     
                 elevation = elevation / len(nodes)
                 self.grid_pg.cur.execute("UPDATE %s SET etamax_nodes = %s WHERE id = %s;" % (new_tablename,etamax,id))
                 self.grid_pg.cur.execute("UPDATE %s SET fdmax_nodes = %s WHERE id = %s;" % (new_tablename,fdmax,id))
                 self.grid_pg.cur.execute("UPDATE %s SET speedmax_nodes = %s WHERE id = %s;" % (new_tablename,speedmax,id))
                 self.grid_pg.cur.execute("UPDATE %s SET exposure = %s WHERE id = %s;" % (new_tablename,exposure,id))
+                self.grid_pg.cur.execute("UPDATE %s SET fragility = %s WHERE id = %s;" % (new_tablename,fragility,id))
+
                 self.grid_pg.cur.execute("UPDATE %s SET z = %s WHERE id = %s;" % (new_tablename,z,id))
 
         
@@ -818,5 +848,14 @@ class ReadOutput:
 
             #close all the output files
             for file in outfiles:
-                file.close()    
-    
+                file.close()
+                
+
+    def fragility(self, x,mu,sig):	
+        """
+        Fragility function - Supprasi et al.
+        
+        
+        """ 
+        Prob = 0.5*(1 + erf((x - mu)/(sqrt(2)*sig)))
+        return Prob    
