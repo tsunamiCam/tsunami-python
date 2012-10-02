@@ -1111,15 +1111,22 @@ class GridPG:
             curTEMP.execute("SELECT s,m,g,f,so,mo,pc,prot_br,prot_nb,prot_sw, prot_w,damage,\
                          visibility_before,visibility_after,wall_height FROM buildings WHERE id = %s;" % (b[0]))            
             ptva = curTEMP.fetchall() 
-
-            p = ptva[0]
-
-            print len(p)
-            self.cur.execute("INSERT INTO %s (id,geom,s,m,g,f,so,mo,pc,prot_br,prot_nb,prot_sw, prot_w,damage,\
-                         visibility_before,visibility_after,wall_height) \
-                         VALUES ( \
-                         %s,ST_Geometry('%s'), \
-                         %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);" % (new_tablename,b[0],b[1],p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7],p[8],p[9],p[10],p[11],p[12],p[13],p[14]))
+            
+            if len(ptva) > 0:
+                p = ptva[0]
+    
+                print p
+                
+                if p[11] > 0:       #Building has been surveyed
+                    self.cur.execute("INSERT INTO %s (id,geom,s,m,g,f,so,mo,pc,prot_br,prot_nb,prot_sw, prot_w,damage,\
+                                 visibility_before,visibility_after,wall_height) \
+                                 VALUES ( \
+                                 %s,ST_Geometry('%s'), \
+                                 %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);" % (new_tablename,b[0],b[1],p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7],p[8],p[9],p[10],p[11],p[12],p[13],p[14]))
+                else:
+                    self.cur.execute("INSERT INTO %s VALUES (%s,ST_Geometry('%s'));" % (new_tablename,b[0],b[1]))
+            else:
+                self.cur.execute("INSERT INTO %s VALUES (%s,ST_Geometry('%s'));" % (new_tablename,b[0],b[1]))
         
         self.conn.commit()
 
