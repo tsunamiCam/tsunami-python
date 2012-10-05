@@ -1058,8 +1058,19 @@ class GridPG:
         """
         
 
+        #BV constants
+        bv_w1 = 0.236   #stories
+        bv_w2 = 0.189   #material
+        bv_w3 = 0.149   #ground floor
+        bv_w4 = 0.142   #foundation
+        bv_w5 = 0.121   #SHAPE AND ORIENTATION
+        bv_w6 = 0.109   #moveable objects
+        bv_w7 = 0.054   #preservation condition
         
-        
+        #simplified version of PTVA with just s,m and f
+        bv_ws = 0.41622574955
+        bv_wm = 0.33333333333
+        bv_wf = 0.2504409171
         self.cur.execute("DROP TABLE IF EXISTS %s;" % new_tablename)
         self.cur.execute("CREATE TABLE %s (id int4);" % new_tablename)     
         self.cur.execute("SELECT AddGeometryColumn('%s', 'geom', %s, 'POLYGON', 2);" % (new_tablename,self.epsg))
@@ -1079,12 +1090,16 @@ class GridPG:
                 ALTER TABLE %s ADD COLUMN comment varchar(128); \
                 ALTER TABLE %s ADD COLUMN visibility_before int4 DEFAULT 0; \
                 ALTER TABLE %s ADD COLUMN visibility_after int4 DEFAULT 0; \
-                ALTER TABLE %s ADD wall_height float DEFAULT 0;" % (new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,
+                ALTER TABLE %s ADD COLUMN wall_height float DEFAULT 0; \
+                ALTER TABLE %s ADD COLUMN bv float DEFAULT 0;" % (new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,
                                                                     new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,new_tablename,
-                                                                    new_tablename,new_tablename))  
+                                                                    new_tablename,new_tablename,new_tablename)) 
+         
         
 
         self.cur.execute("ALTER TABLE %s ADD COLUMN etamax_nodes float;" % new_tablename)
+        self.cur.execute("ALTER TABLE %s ADD COLUMN fdmax_avg_nodes float;" % new_tablename)
+
         self.cur.execute("ALTER TABLE %s ADD COLUMN fdmax_nodes float;" % new_tablename)
         self.cur.execute("ALTER TABLE %s ADD COLUMN speedmax_nodes float;" % new_tablename)        
         self.cur.execute("ALTER TABLE %s ADD COLUMN exposure float;" % new_tablename)
@@ -1113,16 +1128,22 @@ class GridPG:
             ptva = curTEMP.fetchall() 
             
             if len(ptva) > 0:
-                p = ptva[0]
-    
-                print p
-                
+                p = ptva[0]                
                 if p[11] > 0:       #Building has been surveyed
+                    
+                    bv = bv_w1*p[0] + bv_w2*p[1] + bv_w3*p[2] + bv_w4*p[3] + bv_w5*p[4] + bv_w6*p[5] + bv_w7*p[6]
+                    
+                    #try simplified PTVA with just m, s and f
+                    #bv = bv_ws*p[0] + bv_wm*p[1] + bv_wf*p[3]
+                    
                     self.cur.execute("INSERT INTO %s (id,geom,s,m,g,f,so,mo,pc,prot_br,prot_nb,prot_sw, prot_w,damage,\
-                                 visibility_before,visibility_after,wall_height) \
+                                 visibility_before,visibility_after,wall_height,bv) \
                                  VALUES ( \
                                  %s,ST_Geometry('%s'), \
-                                 %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);" % (new_tablename,b[0],b[1],p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7],p[8],p[9],p[10],p[11],p[12],p[13],p[14]))
+                                 %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);" % (new_tablename,b[0],b[1],p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7],p[8],p[9],p[10],p[11],p[12],p[13],p[14],bv))
+                
+                
+                    
                 else:
                     self.cur.execute("INSERT INTO %s VALUES (%s,ST_Geometry('%s'));" % (new_tablename,b[0],b[1]))
             else:

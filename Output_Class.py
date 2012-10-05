@@ -12,13 +12,18 @@ import sys
 from osgeo import ogr #@UnresolvedImport
 from osgeo import osr #@UnresolvedImport
 
+
+
 from Grid_Class import GridPG
 
 
 
-from scipy.special import erf
+from scipy.special import erf,erfinv
 from numpy import linspace, exp, sqrt
+import matplotlib.pyplot as plt
+from scipy import polyval,polyfit
 
+from numpy import histogram
 
 #module to allow commands to be sent to the command line (i.e. Terminal)
 from subprocess import call
@@ -87,12 +92,15 @@ class ReadOutput:
 
 
         
-        self.__init_buildings_dictionary__()
+        #self.__init_buildings_dictionary__()
 
         #connect to the POSTGIS database
         self.grid_pg = GridPG(grid_dbname=grid_dbname, epsg = grid_db_epsg) 
         self.slen = self.grid_pg.get_side_lengths()
         #self.element_areas = self.grid_pg.get_element_areas()
+        
+        
+        self.output_tablename = ""
 
         
 
@@ -172,23 +180,330 @@ class ReadOutput:
             self.element_ids_dict[id] = i
             i+=1 
 
-    '''
 
-    def create_fraglility_curve(self,damage_level):
 
-       
-        connTEMP = psycopg2.connect(database='yuriage_google', user=user);
-        curTEMP = connTEMP.cursor()
-        
-        curTEMP.execute("SELECT id,s,m,g,f,so,mo,pc,prot_br,prot_nb,prot_sw, prot_w,comment,damage,\
- 
-        buildings_google = curTEMP.fetchall() 
+    def create_fraglility_curve3(self):
 
+        '''
+        '''
         
         
-        self.grid_pg.cur.execute("SELECT id FROM buildings WHERE damage='%s';" % (id1))        
-        a1 = self.grid_pg.cur.fetchall()[0][0]
-    '''
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+            self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage>0" % (t))        
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+
+            depth = []
+            damaged  = []
+            for b in damaged_bldgs:
+                depth.append(b[1])
+                damaged.append(b[2])
+                
+            n, bins, patches = plt.hist(damaged, 7)
+            plt.show()
+  
+
+
+
+
+    def create_fraglility_curve2(self,damage_level,stories):
+
+        '''
+        '''
+        
+        
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+
+            
+            t = self.output_tablename
+
+            
+            
+
+            self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage = %s AND s=%s;" % (t, damage_level,stories))        
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+
+            print "Number of buildings with damage %s = %s" % (damage_level,len(damaged_bldgs))
+            depth = []
+            phiinv = []
+            for b in damaged_bldgs:
+                depth.append(b[1])
+                
+                
+            n, bins, patches = plt.hist(depth, 20,normed=1,cumulative=True)
+            plt.close()
+            x = []
+            i = 0
+            while i < (len(bins)-1):
+                avg = (bins[i+1]+bins[i])/2
+                x.append(avg)
+                i+=1
+
+            def phiinv(p):    
+                y = sqrt(2)*erfinv(2*p - 1)
+                return y
+            
+            pinv = []
+            for p in n:
+                pinv.append(phiinv(p))
+            
+            pinv.pop()
+            x.pop()
+            sig,mu = polyfit(pinv,x,1)
+
+            return sig,mu
+
+
+    def create_fraglility_curve(self,damage_level, type = 1, bv_low = -1, bv_high = 1, damage_low = 1, damage_high = 7):
+
+        '''
+        '''
+            
+        
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+
+            '''
+            self.grid_pg.cur.execute("SELECT bv from %s WHERE damage > 0 ;" % (t))        
+
+            bv_all = self.grid_pg.cur.fetchall()
+
+            bv_hist = []
+            for b in bv_all:
+                bv_hist.append(b[0])
+                
+            n, bins, patches = plt.hist(bv_hist,21)
+            plt.show()
+            '''
+            if type == 1:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage = %s;" % (t, damage_level))        
+
+            if type == 2:
+                if (bv_low >= -1 and bv_high <= 1):
+                    self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage = %s and bv > %s and  bv <= %s;" % (t, damage_level, bv_low, bv_high))
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+         
+                    sys.exit()
+            
+            if type == 3:
+                if (bv_low >= -1 and bv_high <= 1):
+                    self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage > 0 and damage <= %s and bv > %s and  bv <= %s;" % (t, damage_level, bv_low, bv_high))
+                
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+                    sys.exit()
+
+            if type == 4:
+                if (bv_low >= -1 and bv_high <= 1):
+                    self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= %s and bv > %s and  bv <= %s;" % (t, damage_level, bv_low, bv_high))
+                
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+                    sys.exit()
+            
+
+            if type == 5:
+                if (bv_low >= -1 and bv_high <= 1):
+                    if (damage_low >= 1 and damage_high <= 7):
+                        self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= %s and damage <= %s and bv > %s and  bv <= %s;" % (t, damage_low, damage_high, bv_low, bv_high))
+                    else:
+                        print "Damage range incorrect - must be within 1 and y"
+                        sys.exit()                        
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+                    sys.exit()
+            
+  
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+
+            print "Number of buildings with damage %s = %s" % (damage_level,len(damaged_bldgs))
+            depth = []
+            phiinv = []
+            for b in damaged_bldgs:
+                depth.append(b[1])
+
+            n, bins, patches = plt.hist(depth, 50,normed=1,cumulative=True)
+            plt.close()
+            x = []
+            i = 0
+            while i < (len(bins)-1):
+                avg = (bins[i+1]+bins[i])/2
+                x.append(avg)
+                i+=1
+
+            def phiinv(p):    
+                y = sqrt(2)*erfinv(2*p - 1)
+                return y
+            
+            pinv = []
+            for p in n:
+                pinv.append(phiinv(p))
+            
+            pinv.pop()
+            x.pop()
+#            plt.scatter(pinv,x)
+#            plt.scatter(x,n)
+#            plt.show()
+            
+            #fit the fragility data
+            sig,mu = polyfit(pinv,x,1)
+            
+            '''
+            
+            xr=polyval([sig,mu],pinv)
+            print sig,mu
+            plt.scatter(pinv,x)
+            plt.plot(pinv,xr)
+            plt.show()    
+            n, bins, patches = plt.hist(depth, 20,normed=1,cumulative=True)
+  
+            x1 = []
+            i = 0
+            while i < (len(bins)-1):
+                avg = (bins[i+1]+bins[i])/2
+                x1.append(avg)
+                i+=1  
+  
+            x = linspace(0,5,51)
+            
+            plt.plot(x,self.fragility(x,mu,sig))
+            plt.scatter(x1,n)
+            
+            plt.show()
+            '''
+            return sig,mu
+
+            
+              
+        
+        '''    
+
+        def I(p,mu,sig):    
+            x  = mu + sig*sqrt(2)*erfinv(2*p - 1)
+            return x
+        
+        def I2(phi,mu,sig):    
+            x  = mu + sig*sqrt(2)*erfinv(2*p - 1)
+            return x
+
+
+
+        p = linspace(0, 1, 101)
+        plt.plot(p, I(p,2.99,1.12))
+        '''
+
+
+    def create_fraglility_curve_avg(self,damage_level, type = 1, bv_low = -1, bv_high = 1, damage_low = 1, damage_high = 7):
+
+        '''
+        '''
+            
+        
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+
+            '''
+            self.grid_pg.cur.execute("SELECT bv from %s WHERE damage > 0 ;" % (t))        
+
+            bv_all = self.grid_pg.cur.fetchall()
+
+            bv_hist = []
+            for b in bv_all:
+                bv_hist.append(b[0])
+                
+            n, bins, patches = plt.hist(bv_hist,21)
+            plt.show()
+            '''
+            if type == 1:
+                self.grid_pg.cur.execute("SELECT id,fdmax_avg_nodes,damage FROM %s WHERE damage = %s;" % (t, damage_level))        
+
+            if type == 2:
+                if (bv_low >= -1 and bv_high <= 1):
+                    self.grid_pg.cur.execute("SELECT id,fdmax_avg_nodes,damage FROM %s WHERE damage = %s and bv > %s and  bv <= %s;" % (t, damage_level, bv_low, bv_high))
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+         
+                    sys.exit()
+            
+            if type == 3:
+                if (bv_low >= -1 and bv_high <= 1):
+                    self.grid_pg.cur.execute("SELECT id,fdmax_avg_nodes,damage FROM %s WHERE damage > 0 and damage <= %s and bv > %s and  bv <= %s;" % (t, damage_level, bv_low, bv_high))
+                
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+                    sys.exit()
+
+            if type == 4:
+                if (bv_low >= -1 and bv_high <= 1):
+                    self.grid_pg.cur.execute("SELECT id,fdmax_avg_nodes,damage FROM %s WHERE damage >= %s and bv > %s and  bv <= %s;" % (t, damage_level, bv_low, bv_high))
+                
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+                    sys.exit()
+            
+
+            if type == 5:
+                if (bv_low >= -1 and bv_high <= 1):
+                    if (damage_low >= 1 and damage_high <= 7):
+                        self.grid_pg.cur.execute("SELECT id,fdmax_avg_nodes,damage FROM %s WHERE damage >= %s and damage <= %s and bv > %s and  bv <= %s;" % (t, damage_low, damage_high, bv_low, bv_high))
+                    else:
+                        print "Damage range incorrect - must be within 1 and y"
+                        sys.exit()                        
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+                    sys.exit()
+            
+  
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+
+            print "Number of buildings with damage %s = %s" % (damage_level,len(damaged_bldgs))
+            speed = []
+            phiinv = []
+            for b in damaged_bldgs:
+                speed.append(b[1])
+
+            n, bins, patches = plt.hist(speed, 50,normed=1,cumulative=True)
+            plt.close()
+            x = []
+            i = 0
+            while i < (len(bins)-1):
+                avg = (bins[i+1]+bins[i])/2
+                x.append(avg)
+                i+=1
+
+            def phiinv(p):    
+                y = sqrt(2)*erfinv(2*p - 1)
+                return y
+            
+            pinv = []
+            for p in n:
+                pinv.append(phiinv(p))
+            
+            pinv.pop()
+            x.pop()
+
+            sig,mu = polyfit(pinv,x,1)
+            
+
+            return sig,mu
+      
 
     def add_max_building_values_to_database(self,new_tablename):
         '''
@@ -196,6 +511,8 @@ class ReadOutput:
 
     
         '''       
+        
+        self.output_tablename = new_tablename
         
         self.grid_pg.add_building_results_table(new_tablename)
         
@@ -266,8 +583,15 @@ class ReadOutput:
             flooddepthNodes.sort()
             flooddepthNodes.reverse()
             
+            fdMaxAverage = 0
+            for max in flooddepthNodes:
+                fdMaxAverage = fdMaxAverage + max
+            
                     
             if len(nodes) > 0:
+                fdMaxAverage = fdMaxAverage/len(nodes)
+                
+                
                 #calculate the average values
 #                speedmaxAVG = 0
 #                i = 0
@@ -282,25 +606,47 @@ class ReadOutput:
                 etamax = etaNodes[0]
                 fdmax = flooddepthNodes[0]
                 speedmax = speedNodes[0]
-                exposure = (etamax + speedmax) / 2
+                exposure = (0.6666*etamax + 0.3333*speedmax)
                 #mu and sig from supprasi et al
                 #Try - Wooden house complete damage
                 #mu = 4.2243
                 #sig = 1.0159
                 #Wooden house - minor damage
-                mu = 2.4409
-                sig = 0.6409                
-                fragility = self.fragility(fdmax,mu,sig)
+
+                self.grid_pg.cur.execute("SELECT bv, damage from %s WHERE id = %s ;" % (new_tablename,id)) 
+                building_return = self.grid_pg.cur.fetchall()
+
+                if building_return[0][1] > 0:        #damage is greater than 0 (i.e. building has been surveyed)
+
+                    bv = building_return[0][0]
+                    
+                    if bv > -1 and bv <= 0.25:
+                        mu = 3.45374067692
+                        sig = 0.601532235676    
+                    if bv > 0.25 and bv <= 0.75:
+                        mu = 3.09628891017
+                        sig = 0.576207872969    
+                    if bv > 0.75:
+                        mu = 2.88133508574
+                        sig = 0.662402196488    
+                
+                    fragility = self.fragility(fdmax,mu,sig)
+
+                    #self.grid_pg.cur.execute("UPDATE %s SET fragility = %s WHERE id = %s;" % (new_tablename,fragility,id))
+
+                #else:
+                    #self.grid_pg.cur.execute("UPDATE %s SET fragility = -1 WHERE id = %s;" % (new_tablename,id))
+
     
                 elevation = elevation / len(nodes)
                 self.grid_pg.cur.execute("UPDATE %s SET etamax_nodes = %s WHERE id = %s;" % (new_tablename,etamax,id))
                 self.grid_pg.cur.execute("UPDATE %s SET fdmax_nodes = %s WHERE id = %s;" % (new_tablename,fdmax,id))
                 self.grid_pg.cur.execute("UPDATE %s SET speedmax_nodes = %s WHERE id = %s;" % (new_tablename,speedmax,id))
                 self.grid_pg.cur.execute("UPDATE %s SET exposure = %s WHERE id = %s;" % (new_tablename,exposure,id))
-                self.grid_pg.cur.execute("UPDATE %s SET fragility = %s WHERE id = %s;" % (new_tablename,fragility,id))
-
                 self.grid_pg.cur.execute("UPDATE %s SET z = %s WHERE id = %s;" % (new_tablename,z,id))
-
+                
+                #add the etaMaxAverage
+                self.grid_pg.cur.execute("UPDATE %s SET fdmax_avg_nodes = %s WHERE id = %s;" % (new_tablename,fdMaxAverage,id))
         
         self.grid_pg.conn.commit()
 
@@ -859,3 +1205,24 @@ class ReadOutput:
         """ 
         Prob = 0.5*(1 + erf((x - mu)/(sqrt(2)*sig)))
         return Prob    
+    
+    
+
+"""
+
+def I(p,mu,sig):    
+    x  = mu + sig*sqrt(2)*erfinv(2*p - 1)
+    return x
+
+def I2(phi,mu,sig):    
+    x  = mu + sig*sqrt(2)*erfinv(2*p - 1)
+    return x
+
+
+
+p = linspace(0, 1, 101)
+plt.plot(p, I(p,2.99,1.12))
+
+
+"""
+

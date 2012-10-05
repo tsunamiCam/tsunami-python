@@ -256,6 +256,10 @@ class BuildingsPG:
 								ALTER TABLE buildings ADD COLUMN prot_nb float DEFAULT 0; \
 								ALTER TABLE buildings ADD COLUMN prot_sw float DEFAULT 0; \
 								ALTER TABLE buildings ADD COLUMN prot_w float DEFAULT 0; \
+                                ALTER TABLE buildings ADD COLUMN wall_height float DEFAULT 0; \
+                                ALTER TABLE buildings ADD COLUMN water_dept float DEFAULT 0; \
+                                ALTER TABLE buildings ADD COLUMN inund_lev float DEFAULT 0; \
+                                ALTER TABLE buildings ADD COLUMN elevation float DEFAULT 0; \
 								ALTER TABLE buildings ADD COLUMN comment varchar(128);")        	
 				
 			#CREATE RULE for when new records are added to the buildings table
@@ -385,6 +389,11 @@ class BuildingsPG:
         else: 
             print "Footprints table already full."
             return n
+
+
+
+
+
 
     def _convert_points_(self,pointsIN,epsgIN,epsgOUT):
            
@@ -1751,6 +1760,128 @@ class BuildingsPG:
         
 
 
+    def add_footprints_manly(self, filename):
+        """
+        This function imports the building footprints for the project
+        
+        IN: filename = file name containing footprints POLYGONS for the study area
+            Input file is generally a KML or ESRI Shapefile containing building
+            footprints as POLYGONS or MULTIPOLYGONS
+            layername = name of layer containing footprints
+            If no layername is given function assumes that the first layer (index=0)
+            contains the footprints data
+            boundaryID - the id of the boundary polygon inside which the footprints are to be imported (i.e. the study area)
+            
+        OUT: function returns # of geometries imported if successful or 0 if unsuccessful
+        
+        """
+        n = 0
+        self.cur.execute("DROP TABLE IF EXISTS buildings;")
+        self._add_table_buildings_()					#Create new buildings table
+        #NOTE the PRIMARY KEY is pkey is required for Geoserver to write to the table via WFS_T
+        #self.cur.execute("CREATE TABLE buildings (pkey integer PRIMARY KEY, id int4);")
+        #self.cur.execute("SELECT AddGeometryColumn('buildings', 'geom', %s, 'POLYGON', 2);" % self.epsg)      
+        self.cur.execute("SELECT * FROM buildings LIMIT 1;" )
+        if len(self.cur.fetchall()) == 0:                   #If table is empty then fill up with footprints
+            datasource_in = ogr.Open(filename)    
+            if datasource_in is None:
+                print "Could not open footprints file.\n"
+                return n        
+            #print datasource_in.GetLayerCount()
+            #layer_in = datasource_in.GetLayerByName("footprints")
+            
+            if datasource_in.GetLayer(0) < 1:
+                print "No data in the input file. \n"
+                return n
+            
+            layer_in = datasource_in.GetLayer(0)
+            layer_in.ResetReading()
+            
+            srs_in = layer_in.GetSpatialRef()       # the footprints spatial reference
+            srs = osr.SpatialReference()            # the spatial reference of the PostGIS database (i.e. self.dbname)
+            srs.ImportFromEPSG(self.epsg)
+                 
+            transform = 0
+            if srs_in != srs:
+                transform = 1
+    
+                       
+            m = 0
+            i = 0
+            sql = ""
+            sqlPTVA = ""
+    
+            for feature in layer_in:
+                geom = feature.GetGeometryRef()
+                #geom.WkbFlatten()               #flatten geometry if it is defined with the 25D flag
+                #if geom is not None and (geom.GetGeometryType() ==  ogr.wkbPolygon or geom.GetGeometryType() ==  ogr.wkbMultiPolygon):
+                    
+#                    if (geom.GetGeometryType() ==  ogr.wkbPolygon):
+
+                geom.FlattenTo2D()
+                valid = geom.IsValid()
+
+                if valid:
+                    if transform:
+                        geom.TransformTo(srs) 
+                    
+                    wkt = geom.ExportToWkt()
+                    
+                    if (geom.GetGeometryType() ==  ogr.wkbPolygon):
+
+                        #if the current footprint is contained within the study boundary polygon then add to SQL command list
+                        #sql = sql + "INSERT INTO buildings (pkey,id,geom) VALUES (%s,%s,ST_GeomFromText('%s',%s));\n" % (n+1,n+1, wkt, self.epsg)                             
+
+                        n+=1 
+                        s = feature.GetFieldAsString('s')
+                        mat = feature.GetFieldAsString('m')
+                        g = feature.GetFieldAsString('g')
+                        f = feature.GetFieldAsString('f')
+                        so = feature.GetFieldAsString('so')
+                        mo = feature.GetFieldAsString('mo')
+                        pc = feature.GetFieldAsString('pc')
+                        prot_sw = feature.GetFieldAsString('prot_sw')
+                        prot_w = feature.GetFieldAsString('prot_w')
+                        prot_nb = feature.GetFieldAsString('prot_nb')
+                        prot_br = feature.GetFieldAsString('prot_br')
+                        wall_heigh = feature.GetFieldAsString('wall_heigh')
+                        water_dept = feature.GetFieldAsString('water_dept')
+                        inund_lev = feature.GetFieldAsString('inund_lev')
+                        elevation = feature.GetFieldAsString('elevation')
+                        sql = sql + "INSERT INTO buildings (pkey,id,geom,s,m,g,f,so,mo,pc,prot_sw,prot_w,prot_nb,prot_br,wall_height,water_dept,inund_lev,elevation) \
+                        VALUES (%s,%s,ST_GeomFromText('%s',%s),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s);\n" % (n+1,n+1, wkt, self.epsg,s,mat,g,f,so,mo,pc,prot_sw,prot_w,prot_nb,prot_br,wall_heigh,water_dept,inund_lev,elevation)
+
+                    elif (geom.GetGeometryType() ==  ogr.wkbMultiPolygon):
+                        print "Warning: footprints layer contains MULTIPOLYGONS."
+                        m+=1
+                else:
+					i += 1
+ #                   elif (geom.GetGeometryType() ==  ogr.wkbMultiPolygon):
+ #                       print "Warning: footprints layer contains MULTIPOLYGONS."
+ #                       m += 1
+    
+                feature.Destroy()
+            
+            print "Number of building POLYGON footprints imported = %s" % n
+            print "Number of building MULTIPOLYGON footprints NOT imported = %s" % m
+            print "Number of invalid geometries = %s" % i
+                        
+            if (sql != ""):
+                self.cur.execute(sql)
+                print "Creating spatial index on buildings...."
+                self.cur.execute("CREATE INDEX buildings_idx ON buildings USING GIST (geom);")
+                self.conn.commit()
+
+    
+            datasource_in.Destroy()
+        
+
+        
+            return n
+        
+        else: 
+            print "Footprints table already full."
+            return n
 
 
       
