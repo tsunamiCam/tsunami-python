@@ -236,7 +236,7 @@ def createFaultPatch(fileout, epsg_in = 4326, epsg_out = 32758):
     segmentLength = 5000.0
     
     segmentWidthSurface = (54000.0/80000.0)*5000.0
-    
+    	
     strike = -math.pi/7.4
     strikeDegrees = (180/math.pi)*strike
     
@@ -329,6 +329,88 @@ def createFaultPatch(fileout, epsg_in = 4326, epsg_out = 32758):
         
     outfile.close()
     
+
+
+
+
+def fujii_fault(x,y,L,W,D, strike,dip,rake,slip, epsgLL = 4326, epsgUTM = 3100):
+    
+    
+    from osgeo import ogr
+    from osgeo import osr
+    import math
+    
+    
+    originLL = []                   # LAT/LONG coordinates to the lower left corner of the fault patch
+    originUTM = []                  # UTM coordinates to the lower left corner of the fault patch
+    originLL = [float(165.59), float(-46.31)]
+    
+    strike = math.pi/180*strike
+        
+    #strike = -math.pi/7.4
+    #strikeDegrees = (180/math.pi)*strike
+        
+    # set the spatial reference - of the input data
+    coordsLL = osr.SpatialReference()
+    coordsLL.ImportFromEPSG(epsgLL)
+    # set the spatial reference - of the output data    
+    coordsUTM = osr.SpatialReference() 
+    coordsUTM.ImportFromEPSG(epsgUTM)
+    point = ogr.Geometry(type=ogr.wkbPoint) 
+       
+       
+    # convert LL fault-slip origin point to UTM
+    point.SetPoint(0, x, y, float(0.0))
+    point.AssignSpatialReference(coordsLL)
+    point.TransformTo(coordsUTM)
+    originUTM = [float(point.GetX()),float(point.GetY())]
+    
+    print originUTM
+    
+    patch = []
+    patch.append([0,0])
+    patch.append([W*1000,0])
+    patch.append([W*1000,L*1000])
+    patch.append([0,L*1000])
+    patch.append([0,0])
+    
+    print patch
+
+    # Create new shapefile
+    driver = ogr.GetDriverByName('KML')
+    shapeData = driver.CreateDataSource('patch.kml')
+    #create layer
+    layer =  shapeData.CreateLayer("FaultPatch", coordsLL, ogr.wkbPoint)
+    
+    R = [[math.cos(strike), -math.sin(strike)],[math.sin(strike),math.cos(strike)]]
+    
+    for p in patch:
+        x0 = p[0]
+        y0 = p[1]
+        print x0,y0
+        xUTM = x0*R[0][0] + y0*R[0][1] + originUTM[0]
+        yUTM = x0*R[1][0] + y0*R[1][1] + originUTM[1]
+        point = ogr.Geometry(type=ogr.wkbPoint) 
+        point.SetPoint(0, xUTM, yUTM)
+        point.AssignSpatialReference(coordsUTM)
+        point.TransformTo(coordsLL)
+        xLL = float(point.GetX())
+        yLL = float(point.GetY()) 
+        
+        print xLL,yLL
+
+        
+        #faultPatchUTM[i][j] = [xUTM,yUTM]
+        #faultPatchLL[i][j] = [xLL,yLL]
+        
+        feature = ogr.Feature(layer.GetLayerDefn())
+        feature.SetGeometry(point)
+        layer.CreateFeature(feature)
+        feature.Destroy()   
+    
+    shapeData.Destroy()    
+
+
 
 
 
@@ -502,7 +584,127 @@ def puysegurWorstCase():
     feature.Destroy()
     outfile.close()
     
+
+
+def fujiiTEST():
     
+    
+    from osgeo import ogr
+    from osgeo import osr
+    import math
+    from numpy import matrix
+    
+    
+    epsgLL = 4326
+    fault = open("fujii_v8.txt", "r").readlines() 
+    print fault[0]
+    fault.pop(0)
+    outfile = open('fujii_v8_NEW.param', "w")    
+
+    # set the spatial reference - of the input data
+    coordsLL = osr.SpatialReference()
+    coordsLL.ImportFromEPSG(epsgLL)
+
+    # set the spatial reference - of the output data    
+    coordsUTM = osr.SpatialReference() 
+    coordsUTM.ImportFromEPSG(3100)
+   
+    driver = ogr.GetDriverByName('KML')
+    kmlData = driver.CreateDataSource("test.kml")
+    layer =  kmlData.CreateLayer("FujiiFault", coordsLL, ogr.wkbLineString)
+    line = ogr.Geometry(type=ogr.wkbLineString)
+    
+    
+    outfile.write("%s\n" % len(fault))
+    
+    n = 0
+    for patch in fault:
+        
+        patch = patch.split()
+        
+        L = float(patch[0])*1000
+        W = float(patch[1])*1000
+        D = float(patch[2])*1000
+        strike = float(patch[3])
+        dip = float(patch[4])
+        rake = float(patch[5])
+        slip = float(patch[6])
+        xLL = float(patch[8])
+        yLL = float(patch[7])
+    
+        point = ogr.Geometry(type=ogr.wkbPoint) 
+        point.SetPoint(0, xLL, yLL, float(0.0))
+        point.AssignSpatialReference(coordsLL)
+        point.TransformTo(coordsUTM)
+        originUTM = [float(point.GetX()),float(point.GetY())]
+        xUTM = float(point.GetX())
+        yUTM = float(point.GetY())
+        
+
+        dipRadians = (math.pi/180)*dip
+        strikeRadians = -(math.pi/180)*strike
+    
+    
+        R = [[math.cos(strikeRadians), -math.sin(strikeRadians)],[math.sin(strikeRadians),math.cos(strikeRadians)]]
+    
+        widthSurface = W*math.cos(dipRadians)
+        #widthRupture = (patch[5]-patch[4])/math.sin(dipRadians)
+        xc0 = widthSurface/2
+        yc0 = L/2
+        dc = -W/2*math.sin(dipRadians) - D
+    
+        xc = xc0*R[0][0] + yc0*R[0][1] + xUTM
+        yc = xc0*R[1][0] + yc0*R[1][1] + yUTM
+
+    
+    
+        patch = []
+        patch.append([0,0])
+        patch.append([widthSurface,0])
+        patch.append([widthSurface,L])
+        patch.append([0,L])
+        patch.append([0,0])
+        
+        line = ogr.Geometry(type=ogr.wkbLineString)
+        
+        for p in patch:
+            x = p[0]*R[0][0] + p[1]*R[0][1] + xUTM
+            y = p[0]*R[1][0] + p[1]*R[1][1] + yUTM
+            line.AddPoint(x,y)
+    
+        
+        line.AssignSpatialReference(coordsUTM)
+        line.TransformTo(coordsLL)
+    
+    
+        feature = ogr.Feature(layer.GetLayerDefn())
+        feature.SetGeometry(line)
+        layer.CreateFeature(feature)
+          
+        point = ogr.Geometry(type=ogr.wkbPoint) 
+        point.SetPoint(0, xc, yc)
+        point.AssignSpatialReference(coordsUTM)
+        point.TransformTo(coordsLL)
+        
+        xcLL = float(point.GetX())
+        ycLL = float(point.GetY())
+        feature.SetGeometry(point)
+        layer.CreateFeature(feature)
+        feature.Destroy()
+        
+        n+=1
+ 
+ 
+        line = "%s   %s   %s   %s   %s  %s  %s    2.e10  2.e10   %s %s\n" % (str(xcLL).ljust(15), str(ycLL).ljust(15),\
+                                                                              str(L).ljust(10), str(W).ljust(10), str(-dc).ljust(15), \
+                                                                               str(dip).ljust(6),str(strike).ljust(8),str(slip).ljust(10), str(rake))
+        
+        outfile.write(line)    
+
+    outfile.close()
+    kmlData.Destroy()
+    print n
+
 def polygonList2KML(polygonlist=[]):
 
     from osgeo import ogr
