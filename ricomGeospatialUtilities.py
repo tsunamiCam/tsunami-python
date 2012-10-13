@@ -596,10 +596,10 @@ def fujiiTEST():
     
     
     epsgLL = 4326
-    fault = open("fujii_v8.txt", "r").readlines() 
+    fault = open("fujii_v4.6.txt", "r").readlines() 
     print fault[0]
     fault.pop(0)
-    outfile = open('fujii_v8_NEW.param', "w")    
+    outfile = open('fujii_v4.6_NEW_2.param', "w")    
 
     # set the spatial reference - of the input data
     coordsLL = osr.SpatialReference()
@@ -651,8 +651,8 @@ def fujiiTEST():
         #widthRupture = (patch[5]-patch[4])/math.sin(dipRadians)
         xc0 = widthSurface/2
         yc0 = L/2
-        dc = -W/2*math.sin(dipRadians) - D
-    
+        #dc = -W/2*math.sin(dipRadians) - D
+        dc = -D
         xc = xc0*R[0][0] + yc0*R[0][1] + xUTM
         yc = xc0*R[1][0] + yc0*R[1][1] + yUTM
 

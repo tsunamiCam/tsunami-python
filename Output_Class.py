@@ -12,6 +12,7 @@ import sys
 from osgeo import ogr #@UnresolvedImport
 from osgeo import osr #@UnresolvedImport
 
+import numpy as np
 
 
 from Grid_Class import GridPG
@@ -92,7 +93,7 @@ class ReadOutput:
 
 
         
-        #self.__init_buildings_dictionary__()
+        self.__init_buildings_dictionary__()
 
         #connect to the POSTGIS database
         self.grid_pg = GridPG(grid_dbname=grid_dbname, epsg = grid_db_epsg) 
@@ -261,6 +262,317 @@ class ReadOutput:
 
             return sig,mu
 
+    def create_fraglility_suppasri(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8):
+
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+
+            damage_level = 7
+            bin_number = 20
+            if type == 1:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and bv >= %s and bv < %s;" % (t,damage_class, bv_low,bv_high))        
+            
+            if type == 2:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and s >= %s and s <= %s;" % (t,damage_class, bv_low,bv_high))        
+
+            if type == 3:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and m >= %s and m <= %s;" % (t,damage_class, bv_low,bv_high))        
+
+
+            if type == 4:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and f >= %s and f <= %s;" % (t,damage_class, bv_low,bv_high))        
+
+
+            
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+            
+            print "Number of buildings with damage %s = %s" % (damage_class,len(damaged_bldgs))
+            
+            
+            depth = []
+            phiinv = []
+            for b in damaged_bldgs:
+                depth.append([b[1],b[2]])
+            
+            
+            depth.sort()
+    
+            num_bldgs = len(depth)
+            depth_class1 = []
+            i = 0
+            start = depth[0][0]
+            end = depth[0][0] + 1.0
+            count7 = 0
+            p7 = []
+            
+            
+            
+            p = []
+            depth_bins = []
+            depths_in_bin = []
+            damage_in_bin = []
+            #bin_size = 8
+            count = 0
+            count_class = 0
+
+            while i < num_bldgs:
+                damage = depth[i][1]
+                fd = depth[i][0]
+                count += 1
+                depths_in_bin.append(fd)
+                damage_in_bin.append(damage)
+                
+                if damage <= damage_class and damage >= damage_low:
+                    count_class += 1
+                
+                if count == bin_size:
+                     
+                    prob = float(count_class)/float(count)
+                    if prob > 0 and prob < 1:
+                        average_depth_bin = 0
+                        for dep in depths_in_bin:
+                            average_depth_bin = average_depth_bin + dep    
+                        average_depth_bin = average_depth_bin/len(depths_in_bin)
+                        depth_bins.append(average_depth_bin)             
+                        p.append(float(count_class)/float(count))
+                     
+                    depths_in_bin = []
+                    damage_in_bin = []
+                    
+                    count = 0
+                    count_class = 0
+                
+                i+=1
+
+                
+            '''
+            while i < num_bldgs:
+                damage = depth[i][1]
+                fd = depth[i][0]
+                
+                if fd >= start and fd < end:
+                    depth_class1.append(damage)
+                    count += 1
+                    if damage == 7:
+                        count7+=1
+                    depths_in_bin.append(fd)
+                
+                elif fd >= end:
+                    print "Number in class = %s" % len(depth_class1)
+                    print depth_class1
+#                    n, bins, patches = plt.hist(depth_class1, [1,2,3,4,5,6,7])
+#                    plt.show()
+#                    plt.close()
+                
+
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep
+                        
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)
+                    
+                    print "average depth in bin = %s" % average_depth_bin
+                    
+                    p7.append(float(count7)/float(count))
+
+                    count = 0
+                    count7 = 0
+                
+                    depths_in_bin = []
+                    depth_class1 = []
+                    depth_class1.append(damage)
+
+                    count += 1
+                    if damage == 7:
+                        count7+=1
+                    depths_in_bin.append(fd)
+
+                    start = end
+                    end = start + 0.25
+                    
+                i+=1
+            '''
+                
+            
+            
+            
+#            print "Number in class = %s" % len(depth_class1)
+#            print depth_class1
+#
+#            average_depth_bin = 0
+#            for dep in depths_in_bin:
+#                average_depth_bin = average_depth_bin + dep
+#                
+#            average_depth_bin = average_depth_bin/len(depths_in_bin)
+#            depth_bins.append(average_depth_bin)
+#            
+#            p7.append(float(count7)/float(count))
+#
+#
+#            print depth_bins
+#            print p7
+#            
+
+
+            def phiinv(p):    
+                y = sqrt(2)*erfinv(2*p - 1)
+                return y
+            
+            def fragility(x,mu,sig):    
+                Prob = 0.5*(1 + erf((x - mu)/(sqrt(2)*sig)))
+                return Prob    
+            
+            pinv = []
+
+            for prob in p:
+                pinv.append(phiinv(prob))
+            
+            
+            sig,mu =  polyfit(pinv,depth_bins,1,full=True)[0]
+            print sig,mu
+
+
+#            plt.plot(pinv, depth_bins, 'o', label='Original data', markersize=10)
+#            x = linspace(-3,3,51)
+#            plt.plot(x, sig*x + mu, 'r', label='Fitted line')
+#            plt.legend()
+#            plt.show()
+#            
+#            plt.close()
+
+            '''
+
+
+            i = bin_number -1
+            j = 0
+            bin_edges = []
+            bin_edges.append(depth[0][0])
+            bins_damage_23 = []
+            total_count = 0
+            while i < num_bldgs:
+                edge = depth[i][0]
+                bin_edges.append(edge)
+            
+                count = 0
+                while j <= i:
+            
+                    if depth[j][1] == damage_level:
+                        count += 1
+                        total_count+=1
+                    j+=1
+                #bins_damage_23.append(float(count)/float(bin_number))
+                bins_damage_23.append(float(count))
+          
+                i+=bin_number
+            
+            print bins_damage_23
+            
+
+            c23 = []
+            c_cumul = []
+            
+            for b in bins_damage_23:
+                c23.append(float(b)/float(bin_number))
+
+            
+#            r = 0
+#            for b in bins_damage_23:
+#                c_cumul.append(r+b)
+#                r = r+b
+#            
+#            for b in c_cumul:
+#                #c23.append(float(b)/float(bin_number))
+#                c23.append(float(b)/float(r))
+#            
+            print c23
+            def phiinv(p):    
+                y = sqrt(2)*erfinv(2*p - 1)
+                return y
+            
+            def fragility(x,mu,sig):    
+                Prob = 0.5*(1 + erf((x - mu)/(sqrt(2)*sig)))
+                return Prob    
+            
+            print c23
+
+            pinv23 = []
+            for p in c23:
+                pinv23.append(phiinv(p))
+                        
+            pinv23_NEW = []
+            bins_depth = []
+            
+            i = 0
+            while i < len(pinv23):
+                p = pinv23[i]
+                
+                b = (bin_edges[i+1] + bin_edges[i]) / 2
+                
+                if p > -50 and p < 50:
+                    pinv23_NEW.append(p)
+                    bins_depth.append(b)
+                i+=1
+            
+            print pinv23_NEW
+            print bins_depth
+            
+            sig,mu =  polyfit(pinv23_NEW,bins_depth,1,full=True)[0]
+            print sig,mu
+            
+            
+            plt.plot(pinv23_NEW, bins_depth, 'o', label='Original data', markersize=10)
+            x = linspace(-2,2,51)
+            plt.plot(x, sig*x + mu, 'r', label='Fitted line')
+            plt.legend()
+            plt.show()
+            
+            plt.close()
+            
+            x = linspace(0,5,100)
+            plt.plot(x,fragility(x,mu,sig),label='Minor',linestyle ='--',color='b')
+
+            
+            
+
+            #Fragility from Suprassi
+            
+            sig4 = 1.0159        #Complete
+            mu4 = 4.2243
+            
+            sig3 = 0.8516        #Major
+            mu3 = 3.8458
+            
+            sig2 = 0.6777        #Moderate
+            mu2 = 2.9028
+            
+            sig1 = 0.6409        #Minor
+            mu1 = 2.4409
+            
+            
+            plt.plot(x,fragility(x,mu1,sig1),label='SUP - Minor',linestyle ='--',color='r')
+            plt.plot(x,fragility(x,mu2,sig2),label='SUP - Moderate',linestyle ='-.',color='r')
+            plt.plot(x,fragility(x,mu3,sig3),label='SUP - Major',linestyle =':',color='r')
+            plt.plot(x,fragility(x,mu4,sig4),label='SUP - Complete',color='r')
+            
+            plt.legend()
+
+            
+            plt.show()
+
+            plt.close()
+
+            '''
+
+            
+            
+
+            return sig,mu
+            
 
     def create_fraglility_curve(self,damage_level, type = 1, bv_low = -1, bv_high = 1, damage_low = 1, damage_high = 7):
 
@@ -274,6 +586,7 @@ class ReadOutput:
         else:
             
             t = self.output_tablename
+            
 
             '''
             self.grid_pg.cur.execute("SELECT bv from %s WHERE damage > 0 ;" % (t))        
@@ -325,8 +638,31 @@ class ReadOutput:
                 else:
                     print "BV range incorrect - must be within 0 and 1"
                     sys.exit()
-            
+
+            if type == 6:
+                if (bv_low >= -1 and bv_high <= 1):
+                    if (damage_low >= 1 and damage_high <= 7):
+                        self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= %s and damage <= %s and bv > %s and  bv <= %s;" % (t, damage_low, damage_high, bv_low, bv_high))
+                    else:
+                        print "Damage range incorrect - must be within 1 and y"
+                        sys.exit()                        
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+                    sys.exit()
   
+
+            if type == 7:
+                if (bv_low >= -1 and bv_high <= 1):
+                    if (damage_low >= 1 and damage_high <= 7):
+                        self.grid_pg.cur.execute("SELECT id,fdmax_avg_nodes,damage FROM %s WHERE damage >= %s and damage <= %s and bv > %s and  bv <= %s ;" % (t, damage_low, damage_high, bv_low, bv_high))
+                    else:
+                        print "Damage range incorrect - must be within 1 and y"
+                        sys.exit()                        
+                else:
+                    print "BV range incorrect - must be within 0 and 1"
+                    sys.exit()
+    
+            
             damaged_bldgs = self.grid_pg.cur.fetchall()
 
             print "Number of buildings with damage %s = %s" % (damage_level,len(damaged_bldgs))
@@ -335,8 +671,13 @@ class ReadOutput:
             for b in damaged_bldgs:
                 depth.append(b[1])
 
+            #n, bins, patches = plt.hist(depth, 50,normed=1,cumulative=True)
+            #plt.show()
+            #plt.close()
+            
             n, bins, patches = plt.hist(depth, 50,normed=1,cumulative=True)
             plt.close()
+
             x = []
             i = 0
             while i < (len(bins)-1):
@@ -359,7 +700,17 @@ class ReadOutput:
 #            plt.show()
             
             #fit the fragility data
-            sig,mu = polyfit(pinv,x,1)
+            sig,mu =  polyfit(pinv,x,1)
+            
+            print sig,mu
+ 
+
+               
+            #A = np.vstack([x, np.ones(len(x))]).T   
+                  
+            #m, c = np.linalg.lstsq(A, pinv)[0]
+            
+            #print m,c
             
             '''
             
@@ -641,6 +992,7 @@ class ReadOutput:
                 elevation = elevation / len(nodes)
                 self.grid_pg.cur.execute("UPDATE %s SET etamax_nodes = %s WHERE id = %s;" % (new_tablename,etamax,id))
                 self.grid_pg.cur.execute("UPDATE %s SET fdmax_nodes = %s WHERE id = %s;" % (new_tablename,fdmax,id))
+
                 self.grid_pg.cur.execute("UPDATE %s SET speedmax_nodes = %s WHERE id = %s;" % (new_tablename,speedmax,id))
                 self.grid_pg.cur.execute("UPDATE %s SET exposure = %s WHERE id = %s;" % (new_tablename,exposure,id))
                 self.grid_pg.cur.execute("UPDATE %s SET z = %s WHERE id = %s;" % (new_tablename,z,id))
