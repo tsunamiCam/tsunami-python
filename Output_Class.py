@@ -5,24 +5,25 @@ import psycopg2 #@UnresolvedImport
 #import errorcodes 
 
 from netCDF4 import Dataset #@UnresolvedImport
-from numpy import *
 import time
 import os
 import sys
 from osgeo import ogr #@UnresolvedImport
 from osgeo import osr #@UnresolvedImport
 
-import numpy as np
 
 
 from Grid_Class import GridPG
 
 
-
+from numpy import *
+import numpy as np
 from scipy.special import erf,erfinv
-from numpy import linspace, exp, sqrt
+from numpy import linspace, exp, sqrt,log
 import matplotlib.pyplot as plt
 from scipy import polyval,polyfit
+
+
 
 from numpy import histogram
 
@@ -262,7 +263,265 @@ class ReadOutput:
 
             return sig,mu
 
-    def create_fraglility_suppasri(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8):
+
+
+    def create_fragility_probit(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8):
+
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+    
+            damage_level = 7
+            bin_number = 20
+            if type == 1:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and bv >= %s and bv < %s;" % (t, bv_low,bv_high))        
+            
+            if type == 2:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s >= %s and s <= %s;" % (t, bv_low,bv_high))        
+    
+            if type == 3:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and m >= %s and m <= %s;" % (t, bv_low,bv_high))        
+    
+    
+            if type == 4:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and f >= %s and f <= %s;" % (t, bv_low,bv_high))        
+    
+    
+            
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+            
+            print "Number of buildings with damage %s = %s" % (damage_class,len(damaged_bldgs))
+            
+            
+            depth = []
+            phiinv = []
+            for b in damaged_bldgs:
+                depth.append([b[1],b[2]])
+            
+            
+            depth.sort()
+            
+            num_bldgs = len(depth)
+            depth_class1 = []
+            i = 0
+            start = depth[0][0]
+            end = depth[0][0] + 1.0
+            count7 = 0
+            p7 = []
+            
+            
+            
+            p = []
+            depth_bins = []
+            depths_in_bin = []
+            damage_in_bin = []
+            #bin_size = 8
+            count = 0
+            count_class = 0
+            
+            binary_damage = []
+            binary_depths = []
+
+            while i < num_bldgs:
+                damage = depth[i][1]
+                fd = depth[i][0]
+                binary_depths.append(fd)
+                if damage >= damage_class:
+                    binary_damage.append(1)
+                else:
+                    binary_damage.append(0)
+                i+=1
+            
+            
+            #np.ones(5)
+            #print binary_damage
+            #print binary_depths
+            #probit_model = Probit(endog=binary_damage,exog=binary_depths)
+            #probit_res = probit_model.fit()
+            #print probit_model.cdf(0)
+            #print probit_res.params[0]
+            #print probit_model.predict(probit_res.params[0],5)
+            import pysal
+            from pysal.spreg.probit import Probit
+
+            x = np.array(binary_depths, ndmin=2).T
+            y = np.array(binary_damage, ndmin=2).T
+
+
+            
+            model = Probit(y,x)
+            betas = np.around(model.betas, decimals=6)
+            print betas
+
+            #The CDF for PROBIT
+            def cdf(x):    
+                Prob = 0.5*(1 + erf(x/sqrt(2)))
+                return Prob   
+
+            '''
+            dep = linspace(0,8,1000)
+            dep_beta = betas[1][0]*dep + betas[0][0]
+            
+            
+            plt.plot(dep,cdf(dep_beta))
+            
+            plt.show()
+            plt.close()
+            '''
+            b0 = betas[0][0]
+            b1 = betas[1][0]
+            
+            
+            return b0,b1
+
+
+
+    def create_fragility_porter(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8):
+
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+    
+            damage_level = 7
+            bin_number = 20
+            if type == 1:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and bv >= %s and bv < %s;" % (t,damage_class, bv_low,bv_high))        
+            
+            if type == 2:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and s >= %s and s <= %s;" % (t,damage_class, bv_low,bv_high))        
+    
+            if type == 3:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and m >= %s and m <= %s;" % (t,damage_class, bv_low,bv_high))        
+    
+    
+            if type == 4:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and f >= %s and f <= %s;" % (t,damage_class, bv_low,bv_high))        
+    
+    
+            
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+            
+            print "Number of buildings with damage %s = %s" % (damage_class,len(damaged_bldgs))
+            
+            
+            depth = []
+            phiinv = []
+            for b in damaged_bldgs:
+                depth.append([b[1],b[2]])
+            
+            
+            depth.sort()
+            
+            num_bldgs = len(depth)
+            depth_class1 = []
+            i = 0
+            start = depth[0][0]
+            end = depth[0][0] + 1.0
+            count7 = 0
+            p7 = []
+            
+            
+            
+            p = []
+            depth_bins = []
+            depths_in_bin = []
+            damage_in_bin = []
+            #bin_size = 8
+            count = 0
+            count_class = 0
+            
+            #according to Porter 2007 - bin size should be SQRT(num_bldgs) rounded up to the nearest integer value
+            bin_size = int(sqrt(num_bldgs))
+            if np.mod(float(sqrt(float(num_bldgs))),1) > 0:
+                bin_size = bin_size + 1
+            
+            while i < num_bldgs:
+                damage = depth[i][1]
+                fd = depth[i][0]
+                count += 1
+                depths_in_bin.append(fd)
+                damage_in_bin.append(damage)
+                
+                if damage <= damage_class and damage >= damage_low:
+                    count_class += 1
+                
+                if count == bin_size:
+                     
+                    print damage_in_bin
+                    prob = float(count_class)/float(count)
+                    
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep         
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    
+                    if prob == 1:     
+                        #p.append(float(count_class)/float(count+1))
+                        #p.append(0.999)
+                        CAM=1
+                    
+                    elif prob == 0:
+                        CAM = 1
+                    else:
+                        depth_bins.append(log(average_depth_bin)) 
+                        p.append(prob)
+                        
+                        
+                    depths_in_bin = []
+                    damage_in_bin = []
+                    
+                    count = 0
+                    count_class = 0
+                
+                i+=1
+
+            def phiinv(p):    
+                y = sqrt(2)*erfinv(2*p - 1)
+                return y
+            
+            def fragility(x,mu,sig):    
+                Prob = 0.5*(1 + erf((x - mu)/(sqrt(2)*sig)))
+                return Prob    
+            
+            pinv = []
+            
+            for prob in p:
+                pinv.append(phiinv(prob))
+            
+            print p
+            print pinv
+
+            x_bar = 0.0
+            for dep in depth_bins:
+                x_bar = x_bar + log(dep)
+            x_bar = x_bar / float(len(depth_bins))
+            
+            y_bar = 0.0
+            for prob in pinv:
+                y_bar = y_bar + prob
+            y_bar = y_bar / float(len(pinv))
+                
+
+            print x_bar
+            print y_bar
+
+
+            sig,mu =  polyfit(pinv,depth_bins,1,full=True)[0]
+            print num_bldgs,bin_size,sig,mu
+            
+            print exp(sig),exp(mu)
+            
+            
+            return sig,mu
+
+
+    def create_fragility_suppasri(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8):
 
         if self.output_tablename == "":
             print "Please add output data to the buildings table for this run..."
@@ -319,6 +578,11 @@ class ReadOutput:
             count = 0
             count_class = 0
 
+            #according to Porter 2007 - bin size should be SQRT(num_bldgs) rounded up to the nearest integer value
+            bin_size = int(sqrt(num_bldgs))
+            if np.mod(float(sqrt(float(num_bldgs))),1) > 0:
+                bin_size = bin_size + 1
+
             while i < num_bldgs:
                 damage = depth[i][1]
                 fd = depth[i][0]
@@ -342,12 +606,11 @@ class ReadOutput:
                      
                     depths_in_bin = []
                     damage_in_bin = []
-                    
                     count = 0
                     count_class = 0
                 
                 i+=1
-
+            print p
                 
             '''
             while i < num_bldgs:
@@ -434,7 +697,7 @@ class ReadOutput:
             
             
             sig,mu =  polyfit(pinv,depth_bins,1,full=True)[0]
-            print sig,mu
+            print num_bldgs,bin_size,sig,mu
 
 
 #            plt.plot(pinv, depth_bins, 'o', label='Original data', markersize=10)
@@ -1557,7 +1820,15 @@ class ReadOutput:
         """ 
         Prob = 0.5*(1 + erf((x - mu)/(sqrt(2)*sig)))
         return Prob    
-    
+
+
+
+    #The CDF for PROBIT
+    def cdf_probit(self,x,b0,b1):    
+        
+        x = b1*x + b0
+        Prob = 0.5*(1 + erf(x/sqrt(2)))
+        return Prob   
     
 
 """
