@@ -265,7 +265,7 @@ class ReadOutput:
 
 
 
-    def create_fragility_probit(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8):
+    def create_fragility_probit(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8,weight=False):
 
         if self.output_tablename == "":
             print "Please add output data to the buildings table for this run..."
@@ -346,10 +346,20 @@ class ReadOutput:
             #print probit_model.predict(probit_res.params[0],5)
             import pysal
             from pysal.spreg.probit import Probit
-
+            if weight == True:
+                #Weight the 0m depth and 0 damage part of the curve
+                #This ensures that the curve passes through 0 probability at 0m water depth
+                                
+                depths_add = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+                binary_add = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+                binary_depths = depths_add+depths_add+binary_depths
+                binary_damage = binary_add+binary_add+binary_damage
+                
             x = np.array(binary_depths, ndmin=2).T
             y = np.array(binary_damage, ndmin=2).T
-
+            
+            print binary_depths
+            print binary_damage
 
             
             model = Probit(y,x)
