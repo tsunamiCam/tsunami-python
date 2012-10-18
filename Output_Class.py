@@ -289,7 +289,11 @@ class ReadOutput:
             if type == 4:
                 self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and f >= %s and f <= %s;" % (t, bv_low,bv_high))        
     
-    
+   
+            if type == 5:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7 and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t))        
+ 
+   
             
             damaged_bldgs = self.grid_pg.cur.fetchall()
             
@@ -358,10 +362,8 @@ class ReadOutput:
             x = np.array(binary_depths, ndmin=2).T
             y = np.array(binary_damage, ndmin=2).T
             
-            print binary_depths
             print binary_damage
 
-            
             model = Probit(y,x)
             betas = np.around(model.betas, decimals=6)
             print betas
@@ -554,7 +556,11 @@ class ReadOutput:
 
             if type == 4:
                 self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and f >= %s and f <= %s;" % (t,damage_class, bv_low,bv_high))        
-
+   
+            if type == 5:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= %s and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t,damage_class))        
+ 
+   
 
             
             damaged_bldgs = self.grid_pg.cur.fetchall()
@@ -592,7 +598,8 @@ class ReadOutput:
             bin_size = int(sqrt(num_bldgs))
             if np.mod(float(sqrt(float(num_bldgs))),1) > 0:
                 bin_size = bin_size + 1
-
+            j = 0
+            start = 0
             while i < num_bldgs:
                 damage = depth[i][1]
                 fd = depth[i][0]
@@ -604,7 +611,9 @@ class ReadOutput:
                     count_class += 1
                 
                 if count == bin_size:
-                     
+                    
+                    j += 1
+                    '''
                     prob = float(count_class)/float(count)
                     if prob > 0 and prob < 1:
                         average_depth_bin = 0
@@ -613,15 +622,92 @@ class ReadOutput:
                         average_depth_bin = average_depth_bin/len(depths_in_bin)
                         depth_bins.append(average_depth_bin)             
                         p.append(float(count_class)/float(count))
-                     
+                    '''
+                    prob = float(count_class)/float(count)
+                    start = i+1
+                    if prob == 0 and j == 1:
+                    #if prob == 0:
+                        average_depth_bin = 0
+                        for dep in depths_in_bin:
+                            average_depth_bin = average_depth_bin + dep    
+                        average_depth_bin = average_depth_bin/len(depths_in_bin)
+                        depth_bins.append(average_depth_bin)             
+                        p.append(0.01)
+                                            
+                    elif prob == 1:
+                        prob = 0.99
+                        average_depth_bin = 0
+                        for dep in depths_in_bin:
+                            average_depth_bin = average_depth_bin + dep    
+                        average_depth_bin = average_depth_bin/len(depths_in_bin)
+                        depth_bins.append(average_depth_bin)             
+                        p.append(0.99)
+                    
+                    elif prob < 1 and prob > 0:
+                        average_depth_bin = 0
+                        for dep in depths_in_bin:
+                            average_depth_bin = average_depth_bin + dep    
+                        average_depth_bin = average_depth_bin/len(depths_in_bin)
+                        depth_bins.append(average_depth_bin)             
+                        p.append(float(count_class)/float(count))                   
+                    
                     depths_in_bin = []
                     damage_in_bin = []
                     count = 0
                     count_class = 0
                 
                 i+=1
-            print p
+            
+            #Set probability for the remaining bin
+            if num_bldgs - start >= 5:
+                i = start
+                count = 0
+                count_class = 0
+                depths_in_bin = []
+                damage_in_bin = []
+                while i < num_bldgs:
+                    damage = depth[i][1]
+                    fd = depth[i][0]
+                    count += 1
+                    depths_in_bin.append(fd)
+                    damage_in_bin.append(damage)
+
+                    if damage <= damage_class and damage >= damage_low:
+                        count_class += 1
+                    i+=1
+                    print damage
+                        
+                prob = float(count_class)/float(count)
+                if prob == 0 and j == 1:
+                #if prob == 0:
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)             
+                    p.append(0.01)
+                                        
+                elif prob == 1:
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)             
+                    p.append(0.99)
                 
+                elif prob < 1 and prob > 0:
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)             
+                    p.append(float(count_class)/float(count))  
+                    
+                    
+            
+            print p
+
+            
             '''
             while i < num_bldgs:
                 damage = depth[i][1]
@@ -704,7 +790,6 @@ class ReadOutput:
 
             for prob in p:
                 pinv.append(phiinv(prob))
-            
             
             sig,mu =  polyfit(pinv,depth_bins,1,full=True)[0]
             print num_bldgs,bin_size,sig,mu
@@ -1841,6 +1926,15 @@ class ReadOutput:
         return Prob   
     
 
+    #Given the fitted PROBIT parameters (b0 and b1), solve for mu (i.e. the standard mean)    
+    def get_mu_from_cdf_probit(self,b0,b1):    
+        
+        #The standard mean of a CDF is were probability = 0.5
+        mu = (sqrt(2)*erfinv(0) - b0)/b1
+        x = 1
+        sig = (x - mu) / ( sqrt(2) * erfinv(erf((b1*x + b0)/sqrt(2))) )
+
+        return sig,mu
 """
 
 def I(p,mu,sig):    
