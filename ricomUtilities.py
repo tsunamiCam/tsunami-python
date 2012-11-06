@@ -310,13 +310,6 @@ def tec2ngh(tec_in, ngh_in, ngh_out):
         i += 1
             
         
-        
-        
-    
-    
-
-
-
 def ngh2tec(ngh_in, tri_in, tec_out):
     
     ngh_file = open(ngh_in, "r").readlines() 
@@ -877,7 +870,7 @@ def tec2gdal(tec_in, asc_out, xmin, xmax, ymin, ymax, step):
 		
 	asc_lines.reverse()
 	for line in asc_lines:
-		outfile.write(line)
+		outfile.write(line + "\n")
 
 	outfile.close()
 

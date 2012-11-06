@@ -94,7 +94,7 @@ class ReadOutput:
 
 
         
-        self.__init_buildings_dictionary__()
+        #self.__init_buildings_dictionary__()
 
         #connect to the POSTGIS database
         self.grid_pg = GridPG(grid_dbname=grid_dbname, epsg = grid_db_epsg) 
@@ -293,19 +293,53 @@ class ReadOutput:
             if type == 5:
                 self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7 and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t))        
  
+            if type == 6:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s >= 1 and m >= 1;" % (t))        
+
+            if type == 7:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s <= 0.5 and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t))        
+
+
+            if type == 8:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7 and s = 1 and m >= 1 and f >= 0.75" % (t))        
+
    
+   
+   
+
             
             damaged_bldgs = self.grid_pg.cur.fetchall()
+
             
             print "Number of buildings with damage %s = %s" % (damage_class,len(damaged_bldgs))
             
-            
+            #print damaged_bldgs
             depth = []
             phiinv = []
+            histogram = []
             for b in damaged_bldgs:
                 depth.append([b[1],b[2]])
+                histogram.append(b[2])  
+
+                '''
+                if b[2] == 5:
+                    histogram.append(6)            
+                else:
+                    histogram.append(b[2])  
+                '''
+           
+            '''
+            n, bins, patches = plt.hist(histogram, [1,2,3,4,5,6])
             
-            
+            plt.xticks((1.5,2.5, 3.5,4.5,5.5), ('Flood', 'Minor','Moderate','Major','Collapse'), size = 12)
+            plt.yticks(size = 12)
+           
+            plt.xlabel('Damage Level',size=15,weight='bold')
+            plt.ylabel('No. of Buildings', size=15,weight='bold' )
+
+            plt.show()
+            plt.close()
+            '''
             depth.sort()
             
             num_bldgs = len(depth)
@@ -329,16 +363,22 @@ class ReadOutput:
             binary_damage = []
             binary_depths = []
 
+            k = 0
+            p = 0
             while i < num_bldgs:
                 damage = depth[i][1]
                 fd = depth[i][0]
                 binary_depths.append(fd)
                 if damage >= damage_class:
+                    k+=1
                     binary_damage.append(1)
                 else:
+                    p+=1
                     binary_damage.append(0)
                 i+=1
             
+            #print k,p
+            #print damage_class
             
             #np.ones(5)
             #print binary_damage
@@ -383,10 +423,44 @@ class ReadOutput:
             plt.show()
             plt.close()
             '''
+            
+
+            
             b0 = betas[0][0]
             b1 = betas[1][0]
             
+            #plt.plot(pinv, depth_bins, 'o', label='Original data', markersize=10)
+            #x = linspace(-3,3,51)
+            x = linspace(0,5,1000)
             
+            i=0
+            while i< len(binary_damage):
+                
+                
+                if binary_damage[i] == 0:
+                    binary_damage[i] = 0.02*100
+                else:
+                    binary_damage[i] = 0.98*100
+                i+=1
+            
+            '''
+            plt.plot(binary_depths, binary_damage,'o',markersize=10,color='b')
+            plt.plot(x,(self.cdf_probit(x,b0,b1))*100,color='r',linewidth=3)
+            
+            plt.xticks(size = 12,weight='bold')
+            plt.yticks((0,50, 100), ('0', '50%',  '100%'), size = 12,weight='bold')
+            
+            plt.xlabel('Inundation Depth (m)',size=15,weight='bold')
+            plt.ylabel('Damage Probability (%)', size=15,weight='bold' )
+            plt.ylim([0,100])
+            plt.xlim([0,5])
+            
+            #plt.legend()
+            plt.show()
+            
+            plt.close()
+            '''
+         
             return b0,b1
 
 
@@ -1870,7 +1944,7 @@ class ReadOutput:
         """
         
         """
-        startTime = datetime(2011,03,11,14,46,00)
+        startTime = datetime(2011,03,11,14,46,24)
        
         number_of_key_points = len(self.key_points.dimensions['number_of_key_points'])
         
@@ -1892,6 +1966,10 @@ class ReadOutput:
                 outfiles.append(open(filename, "w"))
             
             tStep = 0
+            print time
+            print eta[6]
+            print len(eta[6])
+            print len(time)
             for t in time:
                 currentDateTime = startTime + timedelta(seconds=t)
                 datestring = str(currentDateTime)
@@ -1901,7 +1979,8 @@ class ReadOutput:
                     outfiles[i].write("%s %s\n" % (datestring, str(eta[i][tStep]*100)))
                     i+=1
                 tStep+=1
-
+            
+            print tStep
             #close all the output files
             for file in outfiles:
                 file.close()

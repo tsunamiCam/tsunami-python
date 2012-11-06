@@ -596,10 +596,11 @@ def fujiiTEST():
     
     
     epsgLL = 4326
-    fault = open("fujii_v4.6.txt", "r").readlines() 
+    fault = open("dispCDF40_ver4.2.in", "r").readlines() 
     print fault[0]
     fault.pop(0)
-    outfile = open('fujii_v4.6_NEW_2.param', "w")    
+    outfile = open('fujii_v4.2_NEW.param', "w")    
+    outfile2 = open('FujiiFault.gmt', "w")    
 
     # set the spatial reference - of the input data
     coordsLL = osr.SpatialReference()
@@ -640,10 +641,8 @@ def fujiiTEST():
         xUTM = float(point.GetX())
         yUTM = float(point.GetY())
         
-
         dipRadians = (math.pi/180)*dip
         strikeRadians = -(math.pi/180)*strike
-    
     
         R = [[math.cos(strikeRadians), -math.sin(strikeRadians)],[math.sin(strikeRadians),math.cos(strikeRadians)]]
     
@@ -651,13 +650,11 @@ def fujiiTEST():
         #widthRupture = (patch[5]-patch[4])/math.sin(dipRadians)
         xc0 = widthSurface/2
         yc0 = L/2
-        #dc = -W/2*math.sin(dipRadians) - D
-        dc = -D
+        dc = -W/2*math.sin(dipRadians) - D
+        #dc = -D
         xc = xc0*R[0][0] + yc0*R[0][1] + xUTM
         yc = xc0*R[1][0] + yc0*R[1][1] + yUTM
 
-    
-    
         patch = []
         patch.append([0,0])
         patch.append([widthSurface,0])
@@ -667,12 +664,18 @@ def fujiiTEST():
         
         line = ogr.Geometry(type=ogr.wkbLineString)
         
+        
+        outfile2.write("> -Z%s\n" % slip)
+        
         for p in patch:
             x = p[0]*R[0][0] + p[1]*R[0][1] + xUTM
             y = p[0]*R[1][0] + p[1]*R[1][1] + yUTM
             line.AddPoint(x,y)
-    
-        
+            ptIn = []
+            ptIn.append([x,y,slip])
+            LL = convertXY(ptIn,3100,4326)
+            outfile2.write("%s %s %s\n" % (LL[0][0],LL[0][1],LL[0][2]))
+            
         line.AssignSpatialReference(coordsUTM)
         line.TransformTo(coordsLL)
     
@@ -682,14 +685,14 @@ def fujiiTEST():
         layer.CreateFeature(feature)
           
         point = ogr.Geometry(type=ogr.wkbPoint) 
-        point.SetPoint(0, xc, yc)
+        point.SetPoint(0,xc, yc,slip)
         point.AssignSpatialReference(coordsUTM)
         point.TransformTo(coordsLL)
         
         xcLL = float(point.GetX())
         ycLL = float(point.GetY())
-        feature.SetGeometry(point)
-        layer.CreateFeature(feature)
+        #feature.SetGeometry(point)
+        #layer.CreateFeature(feature)
         feature.Destroy()
         
         n+=1
@@ -702,8 +705,178 @@ def fujiiTEST():
         outfile.write(line)    
 
     outfile.close()
+    outfile2.close()
     kmlData.Destroy()
     print n
+
+
+def romano_fault():
+    
+    
+    from osgeo import ogr
+    from osgeo import osr
+    import math
+    from numpy import matrix
+    
+    
+    epsgLL = 4326
+    fault = open("source_romano2012.txt", "r").readlines() 
+    print fault[0]
+    fault.pop(0)
+    outfile = open('tohoku_romano2012c.param', "w")    
+
+    # set the spatial reference - of the input data
+    coordsLL = osr.SpatialReference()
+    coordsLL.ImportFromEPSG(epsgLL)
+
+    # set the spatial reference - of the output data    
+    coordsUTM = osr.SpatialReference() 
+    coordsUTM.ImportFromEPSG(3100)
+   
+    driver = ogr.GetDriverByName('KML')
+    kmlData = driver.CreateDataSource("tohoku_romano2012.kml")
+    layer =  kmlData.CreateLayer("romano_fault", coordsLL, ogr.wkbLineString)
+    line = ogr.Geometry(type=ogr.wkbLineString)
+    
+    
+    outfile.write("%s\n" % len(fault))
+    
+    n = 0
+    
+    centres = []
+    for patch in fault:
+        
+        #The patches in the supplementary data are not actually as labelled - see bellow
+        #print patch
+        patch = patch.split()
+     	fault_number = float(patch[0])
+     	ur_lon = float(patch[1]) #lr
+     	ur_lat = float(patch[2])
+        ul_lon = float(patch[3]) #ur
+        ul_lat = float(patch[4])
+        ll_lon = float(patch[5]) #ul
+        ll_lat = float(patch[6])
+        lr_lon = float(patch[7]) #ll
+        lr_lat = float(patch[8])
+        top_depth = float(patch[9])
+        strike = float(patch[10])
+        dip = float(patch[11])
+        slip = float(patch[12])
+        rake = float(patch[13])
+        
+        patch_seg = []
+        patch_seg.append([ur_lon,ur_lat])
+        patch_seg.append([ul_lon,ul_lat])
+        patch_seg.append([ll_lon,ll_lat])
+        patch_seg.append([lr_lon,lr_lat])
+        patch_seg.append([ur_lon,ur_lat])
+        patch_segUTM = convertXY(patch_seg,epsgLL,3100)
+        widthSurface = ((patch_segUTM[1][0] - patch_segUTM[2][0]) + (patch_segUTM[0][0] - patch_segUTM[3][0]))/2
+        L = ((patch_segUTM[1][1] - patch_segUTM[0][1]) + (patch_segUTM[2][1] - patch_segUTM[3][1]))/2
+        
+        dipRadians = (math.pi/180)*dip
+        strikeRadians = -(math.pi/180)*strike
+        R = [[math.cos(strikeRadians), -math.sin(strikeRadians)],[math.sin(strikeRadians),math.cos(strikeRadians)]]
+        widthRupture = widthSurface/math.cos(dipRadians)
+        
+        xc = ((patch_segUTM[1][0] + patch_segUTM[2][0]) + (patch_segUTM[0][0] + patch_segUTM[3][0]))/4
+        yc = ((patch_segUTM[1][1] + patch_segUTM[0][1]) + (patch_segUTM[2][1] + patch_segUTM[3][1]))/4
+        #xc = (patch_segUTM[1][0] + patch_segUTM[2][0])/2
+        #yc = ((patch_segUTM[1][1] + patch_segUTM[0][1]))/2
+        #dc = ((widthRupture/2) * math.sin(dipRadians)) + top_depth*1000
+        dc = top_depth*1000 - ((widthRupture/2) * math.sin(dipRadians))
+
+        print dc,top_depth*1000
+        
+        list = []
+        list.append([xc,yc])
+        xycLL = convertXY(list,3100,epsgLL)
+        xcLL = xycLL[0][0]
+        ycLL = xycLL[0][1]
+        #print patch_segUTM
+        #print widthRupture,L,xc,yc
+        centres.append([xc,yc])
+        #print W,L
+        #print patch_segUTM
+        
+        '''
+        L = float(patch[0])*1000
+        W = float(patch[1])*1000
+        D = float(patch[2])*1000
+        strike = float(patch[3])
+        dip = float(patch[4])
+        rake = float(patch[5])
+        slip = float(patch[6])
+        xLL = float(patch[8])
+        yLL = float(patch[7])
+		
+
+        
+
+        dipRadians = (math.pi/180)*dip
+        strikeRadians = -(math.pi/180)*strike
+    
+        R = [[math.cos(strikeRadians), -math.sin(strikeRadians)],[math.sin(strikeRadians),math.cos(strikeRadians)]]
+    
+        widthSurface = W*math.cos(dipRadians)
+        #widthRupture = (patch[5]-patch[4])/math.sin(dipRadians)
+        xc0 = widthSurface/2
+        yc0 = L/2
+        dc = -W/2*math.sin(dipRadians) - D
+        #dc = -D
+        xc = xc0*R[0][0] + yc0*R[0][1] + xUTM
+        yc = xc0*R[1][0] + yc0*R[1][1] + yUTM
+        '''
+    
+
+
+        line = ogr.Geometry(type=ogr.wkbLineString)
+        
+        for p in patch_seg:
+            #x = p[0]*R[0][0] + p[1]*R[0][1] + xUTM
+            #y = p[0]*R[1][0] + p[1]*R[1][1] + yUTM
+            
+            line.AddPoint(p[0],p[1])
+    
+        
+        line.AssignSpatialReference(coordsLL)
+    
+    
+        feature = ogr.Feature(layer.GetLayerDefn())
+        feature.SetGeometry(line)
+        layer.CreateFeature(feature)
+        feature.Destroy()
+        
+        n+=1
+
+ 
+ 
+        line = "%s   %s   %s   %s   %s  %s  %s    2.e10  2.e10   %s %s\n" % (str(xcLL).ljust(15), str(ycLL).ljust(15),\
+                                                                              str(L).ljust(10), str(widthRupture).ljust(10), str(dc).ljust(15), \
+                                                                               str(dip).ljust(6),str(strike).ljust(8),str(slip).ljust(10), str(rake))
+         
+        
+        outfile.write(line)    
+
+		
+	centresLL = convertXY(centres,3100,epsgLL)
+    
+    for c in centresLL:
+        
+        feature = ogr.Feature(layer.GetLayerDefn())
+
+        point = ogr.Geometry(type=ogr.wkbPoint) 
+        point.SetPoint(0, c[0], c[1], float(0.0))
+        point.AssignSpatialReference(coordsLL)
+        
+        feature.SetGeometry(point)
+        layer.CreateFeature(feature)
+        feature.Destroy()
+        
+    outfile.close()
+    kmlData.Destroy()
+    print n
+
 
 def polygonList2KML(polygonlist=[]):
 
