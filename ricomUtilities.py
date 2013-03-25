@@ -797,6 +797,60 @@ def GEBCOtoMOST(gebco_in,most_out):
 #
 #
 
+
+def tec_convertCoords(tec_in,epsgOUT = 4326, lat0=0,long0=0,latoff=0,longoff=0):
+	'''
+	Convert the coordinates of a Fulldomain output file from Ricom
+	
+	Ricom local Coords -> epsgOUT
+	
+	'''
+
+	from ricomGeospatialUtilities import ricomLocal2LL
+	from ricomGeospatialUtilities import convertXY
+	
+	# VARIABLES="X" "Y" "Z" "ETA" "U" "V" 
+	#ZONE N= 395116 E= 783117 ET=TRIANGLE F=FEPOINT
+	#  SOLUTIONTIME=  0.000000000000000E+000
+	tec_file = open(tec_in, "r").readlines()
+	outfile = open("Fulldomain2452.dat", "w")
+	i = 0
+	j = 0
+	k = 0
+	num_nodesNGH = 0
+	num_nodesTEC = 0
+	
+	for line in tec_file:
+
+		i = line.find("N=")
+		j = line.find("E=")
+		if i > 0:
+			num_nodesTEC = int(line[i+3:j])
+			k +=2 
+			break
+		k+=1
+	
+	i = 0
+	
+	while i < num_nodesTEC:
+		
+		line = tec_file[k].split()
+		
+		xy = []
+		xy.append([float(line[0]),float(line[1])])
+		xyLL = ricomLocal2LL(xy,37.838428, 143.22166)
+		xy2452 = convertXY(xyLL,4326,2452)
+		line[0] = xy2452[0][0]
+		line[1] = xy2452[0][1]
+		line2 = "%s    %s    %s    %s    %s    %s\n" % (line[0],line[1],line[2],line[3],line[4],line[5])
+		
+		tec_file[k] = line2	
+		k+=1
+		i+=1
+		
+	for line in tec_file:
+		outfile.write(line) 
+		
 def tec2gdal(tec_in, asc_out, xmin, xmax, ymin, ymax, step):
     
 	'''
