@@ -434,7 +434,6 @@ class ReadOutput:
             start = depth[0][0]
             end = depth[0][0] + 1.0
             count7 = 0
-            p7 = []
             
             
             
@@ -2394,30 +2393,18 @@ class ReadOutput:
         for s in s3:
             depth.append([s,3])
                 
-        depth.sort()
-        
-        
-        
+        depth.sort()        
         num_bldgs = len(depth)
-        depth_class1 = []
-        i = 0
-        start = depth[0][0]
-        end = depth[0][0] + 1.0
-        count7 = 0
-        p7 = []
-        
-        
-        
+        i = 0        
         p = []
         depth_bins = []
         depths_in_bin = []
         damage_in_bin = []
-        #bin_size = 8
         count = 0
         count_class = 0
         
         n_out = []              #the specimens in each bin
-        bins_out = []         #the edges of the bins
+        bins_out = []           #the edges of the bins
         n_d1 = 0
         n_d2 = 0
         n_d3 = 0
@@ -2434,6 +2421,7 @@ class ReadOutput:
         start = 0
         
         prob_one_FLAG = False
+        p1_count = 0
         
         print "SUPPASRI: Bin Size = %s" % bin_size
         while i < num_bldgs:
@@ -2455,7 +2443,6 @@ class ReadOutput:
                 count_class += 1
             
             if count == bin_size:
-                
                 j += 1
                 '''
                 prob = float(count_class)/float(count)
@@ -2468,8 +2455,9 @@ class ReadOutput:
                     p.append(float(count_class)/float(count))
                 '''
                 prob = float(count_class)/float(count)
+                print prob
                 start = i+1
-                if prob == 0 and j == 1:
+                if prob == 0:
                 #if prob == 0:
                     average_depth_bin = 0
                     for dep in depths_in_bin:
@@ -2484,11 +2472,16 @@ class ReadOutput:
                     for dep in depths_in_bin:
                         average_depth_bin = average_depth_bin + dep    
                     average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    p.append(0.99)
+                    depth_bins.append(average_depth_bin)             
+                    p1_count += 1
+                    '''
                     if prob_one_FLAG == False:
                         depth_bins.append(average_depth_bin)             
                         p.append(0.99)
                         prob_one_FLAG = True
-                
+                    '''
+                    
                 elif prob < 1 and prob > 0:
                     average_depth_bin = 0
                     for dep in depths_in_bin:
@@ -2516,6 +2509,10 @@ class ReadOutput:
             
             i+=1
         #Set probability for the remaining bin
+        n_d1 = 0
+        n_d2 = 0
+        n_d3 = 0
+        
         if num_bldgs - start >= 5:
             i = start
             count = 0
@@ -2555,11 +2552,16 @@ class ReadOutput:
                 for dep in depths_in_bin:
                     average_depth_bin = average_depth_bin + dep    
                 average_depth_bin = average_depth_bin/len(depths_in_bin)
+                p.append(0.99)
+                depth_bins.append(average_depth_bin)             
+
+                '''
                 if prob_one_FLAG == False:
                     depth_bins.append(average_depth_bin)             
                     p.append(0.99)
                     prob_one_FLAG = True
-            
+                '''
+                
             elif prob < 1 and prob > 0:
                 average_depth_bin = 0
                 for dep in depths_in_bin:
@@ -2583,33 +2585,43 @@ class ReadOutput:
             return Prob    
         
         pinv = []
-        
         p100 = []
-        for prob in p:
+        depth_fit = []
+        i = 0
+        add =1
+        if p1_count == 0: add=0
+        
+        while i < (len(p)-p1_count+add):
+            prob = p[i]
             pinv.append(phiinv(prob))
             p100.append(prob*100)
-        sig,mu =  polyfit(pinv,depth_bins,1,full=True)[0]
-        
-        print p 
-        print depth_bins
-        
+            depth_fit.append(depth_bins[i])
+            i+=1
+        sig,mu =  polyfit(pinv,depth_fit,1,full=True)[0]
+
         bin = depth_bins
         prob = p100
         
-        
-        
+        print len(n1),len(n2),len(n3), len(depth_bins),len(pinv)
+        '''
         i = len(prob)
         while i<len(bins_out):
             prob.append(100)
             i+=1
+        '''
+        
+        i=0
+        while i < (p1_count-1):
+            prob.append(100)
+            i+=1
 
-                
+
         
         
-        #print n_out
-        #print depth_bins
         
-        return sig,mu,bins_out,prob,n1,n2,n3
+        print n_out
+        print depth_bins
+        return sig,mu,bin,prob,n1,n2,n3
 
 
  #   def create_fragility_probit_norm(self, damage_class,mu1=1,sig1=0.4, mu2=2.5,sig2=0.6, mu3=3.25,sig3=0.6, c1=100, c2=100, c3=100, weight=False):
