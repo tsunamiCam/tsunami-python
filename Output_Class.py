@@ -952,8 +952,6 @@ class ReadOutput:
             
             t = self.output_tablename
     
-            damage_level = 7
-            bin_number = 20
             if type == 1:
                 self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage = %s and bv >= %s and bv < %s;" % (t,damage_class, bv_low,bv_high))        
             
@@ -998,7 +996,7 @@ class ReadOutput:
             depth.sort()
     
             num_bldgs = len(depth)
-
+            
             def phiinv(p):    
                 y = sqrt(2)*erfinv(2*p - 1)
                 return y
@@ -1054,11 +1052,11 @@ class ReadOutput:
                 """ 
                 Prob = 0.5*(1 + erf((log(x) - mu)/(sqrt(2)*sig)))
                 return Prob 
-            
+			
+
 #            x = linspace(0,10,1000)
 #            plt.plot(bin_avg, p100,'o',markersize=10,color='b')
 #            plt.plot(x,(fragilityln(x,mu,sig))*100,color='b',linewidth=3)
-#
 #
 #            plt.xticks(size = 12,weight='bold')
 #            plt.yticks((0,10,20,30,40,50,60,70,80,90,100), size = 12,weight='bold')
@@ -1068,7 +1066,8 @@ class ReadOutput:
 #            plt.xlim([0,10])
 #            plt.show()
 #            plt.close()
-            return sig,mu
+
+            return sig,mu,p100,bin_avg
             
 
     def create_fragility_cumfreq(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8):
@@ -1080,8 +1079,7 @@ class ReadOutput:
             
             t = self.output_tablename
     
-            damage_level = 7
-            bin_number = 20
+
             if type == 1:
                 self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage = %s and bv >= %s and bv < %s;" % (t,damage_class, bv_low,bv_high))        
             
@@ -1240,14 +1238,13 @@ class ReadOutput:
             #sig,mu =  polyfit(pinv,bins_outLN,1,full=True)[0]    
             sig,mu =  polyfit(pinv_BIN,bin_midLN,1,full=True)[0]    
 
-            plt.plot(pinv, bins_outLN, 'o', label='Original data', markersize=10)
-            x = linspace(-5,5,51)
-            plt.plot(x, sig*x + mu, 'r', label='Fitted line')
-            plt.legend()
-            plt.show()        
-            plt.close()  
+#            plt.plot(pinv, bins_outLN, 'o', label='Original data', markersize=10)
+#            x = linspace(-5,5,51)
+#            plt.plot(x, sig*x + mu, 'r', label='Fitted line')
+#            plt.legend()
+#            plt.show()        
+#            plt.close()  
             
-
 
             def fragilityln(x,mu,sig):    
                 """
@@ -1256,6 +1253,7 @@ class ReadOutput:
                 Prob = 0.5*(1 + erf((log(x) - mu)/(sqrt(2)*sig)))
                 return Prob 
             
+            '''
             x = linspace(0,10,1000)
             #plt.plot(bins_out, p100,'o',markersize=10,color='b')
             #plt.plot(x,(fragilityln(x,mu,sig))*100,color='b',linewidth=3)
@@ -1274,8 +1272,10 @@ class ReadOutput:
             plt.close()
 
             bin = bins_out
+            print size(bin), size(prob), size(bin_mid2)
+            '''
             prob = p100
-            
+
             return sig,mu,bin,prob
 
     def cumulative_valencia(self,bins,bin_count, num_bldgs):
@@ -2365,21 +2365,602 @@ class ReadOutput:
         sig = (x - mu) / ( sqrt(2) * erfinv(erf((b1*x + b0)/sqrt(2))) )
 
         return sig,mu
-"""
+    
+#    def create_fragility_suppasri_norm(self,damage_class=2,mu1=1,sig1=0.4, mu2=2.5,sig2=0.6, mu3=3.25,sig3=0.6, c1=100, c2=100, c3=100):
+    def create_fragility_suppasri_norm(self,damage_class,s1,s2,s3):
 
-def I(p,mu,sig):    
-    x  = mu + sig*sqrt(2)*erfinv(2*p - 1)
-    return x
+        '''
+        Create a binned (i.e. method used in suppasri/koshimura) fragility function using a set of
+        normal distributed buildings
+        
+        This will be used as an example to show how the different technique work
+        
+        This will be compared against other techniques (probit and cumulative) to illustrate the differences
+        '''
+        
+        #CREATE THE DATA
+#        s1 = np.random.normal(mu1, sig1, c1).tolist()
+#        s2 = np.random.normal(mu2, sig2, c2).tolist()
+#        s3 = np.random.normal(mu3, sig3, c3).tolist()
 
-def I2(phi,mu,sig):    
-    x  = mu + sig*sqrt(2)*erfinv(2*p - 1)
-    return x
+        depth = []
+
+        for s in s1:
+            depth.append([s,1])
+
+        for s in s2:
+            depth.append([s,2])
+            
+        for s in s3:
+            depth.append([s,3])
+                
+        depth.sort()
+        
+        
+        
+        num_bldgs = len(depth)
+        depth_class1 = []
+        i = 0
+        start = depth[0][0]
+        end = depth[0][0] + 1.0
+        count7 = 0
+        p7 = []
+        
+        
+        
+        p = []
+        depth_bins = []
+        depths_in_bin = []
+        damage_in_bin = []
+        #bin_size = 8
+        count = 0
+        count_class = 0
+        
+        n_out = []              #the specimens in each bin
+        bins_out = []         #the edges of the bins
+        n_d1 = 0
+        n_d2 = 0
+        n_d3 = 0
+        n1 = []
+        n2 = []
+        n3 = []
+        
+        
+        #according to Porter 2007 - bin size should be SQRT(num_bldgs) rounded up to the nearest integer value
+        bin_size = int(sqrt(num_bldgs))
+        if np.mod(float(sqrt(float(num_bldgs))),1) > 0:
+            bin_size = bin_size + 1
+        j = 0
+        start = 0
+        
+        prob_one_FLAG = False
+        
+        print "SUPPASRI: Bin Size = %s" % bin_size
+        while i < num_bldgs:
+            damage = depth[i][1]
+            fd = depth[i][0]
+            count += 1
+            depths_in_bin.append(fd)
+            damage_in_bin.append(damage)
+            if damage == 1:
+                n_d1+=1
+            if damage == 2:
+                n_d2+=1
+            if damage == 3:
+                n_d3+=1
+                
+            
+            
+            if damage >= damage_class:
+                count_class += 1
+            
+            if count == bin_size:
+                
+                j += 1
+                '''
+                prob = float(count_class)/float(count)
+                if prob > 0 and prob < 1:
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)             
+                    p.append(float(count_class)/float(count))
+                '''
+                prob = float(count_class)/float(count)
+                start = i+1
+                if prob == 0 and j == 1:
+                #if prob == 0:
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)             
+                    p.append(0.01)
+                                        
+                elif prob == 1:
+                    prob = 0.99
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    if prob_one_FLAG == False:
+                        depth_bins.append(average_depth_bin)             
+                        p.append(0.99)
+                        prob_one_FLAG = True
+                
+                elif prob < 1 and prob > 0:
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)             
+                    p.append(float(count_class)/float(count))                   
+                
+                
+                bins_out.append(average_depth_bin)
+                n_out.append([n_d1,n_d2,n_d3])
+                n1.append(n_d1)
+                n2.append(n_d2)
+                n3.append(n_d3)
+        
+    
+                n_d1 = 0
+                n_d2 = 0
+                n_d3 = 0
+                
+                depths_in_bin = []
+                damage_in_bin = []
+                count = 0
+                count_class = 0
+            
+            i+=1
+        #Set probability for the remaining bin
+        if num_bldgs - start >= 5:
+            i = start
+            count = 0
+            count_class = 0
+            depths_in_bin = []
+            damage_in_bin = []
+            while i < num_bldgs:
+                damage = depth[i][1]
+                fd = depth[i][0]
+                count += 1
+                depths_in_bin.append(fd)
+                damage_in_bin.append(damage)
+    
+                if damage == 1:
+                    n_d1+=1
+                if damage == 2:
+                    n_d2+=1
+                if damage == 3:
+                    n_d3+=1
+                    
+                if damage >= damage_class:
+                    count_class += 1
+                i+=1
+                    
+            prob = float(count_class)/float(count)
+            if prob == 0 and j == 1:
+            #if prob == 0:
+                average_depth_bin = 0
+                for dep in depths_in_bin:
+                    average_depth_bin = average_depth_bin + dep    
+                average_depth_bin = average_depth_bin/len(depths_in_bin)
+                depth_bins.append(average_depth_bin)             
+                p.append(0.01)
+                                    
+            elif prob == 1:
+                average_depth_bin = 0
+                for dep in depths_in_bin:
+                    average_depth_bin = average_depth_bin + dep    
+                average_depth_bin = average_depth_bin/len(depths_in_bin)
+                if prob_one_FLAG == False:
+                    depth_bins.append(average_depth_bin)             
+                    p.append(0.99)
+                    prob_one_FLAG = True
+            
+            elif prob < 1 and prob > 0:
+                average_depth_bin = 0
+                for dep in depths_in_bin:
+                    average_depth_bin = average_depth_bin + dep    
+                average_depth_bin = average_depth_bin/len(depths_in_bin)
+                depth_bins.append(average_depth_bin)             
+                p.append(float(count_class)/float(count))  
+
+            bins_out.append(average_depth_bin)
+            n_out.append([n_d1,n_d2,n_d3])
+            n1.append(n_d1)
+            n2.append(n_d2)
+            n3.append(n_d3)
+        
+        def phiinv(p):    
+            y = sqrt(2)*erfinv(2*p - 1)
+            return y
+        
+        def fragility(x,mu,sig):    
+            Prob = 0.5*(1 + erf((x - mu)/(sqrt(2)*sig)))
+            return Prob    
+        
+        pinv = []
+        
+        p100 = []
+        for prob in p:
+            pinv.append(phiinv(prob))
+            p100.append(prob*100)
+        sig,mu =  polyfit(pinv,depth_bins,1,full=True)[0]
+        
+        print p
+        print depth_bins
+        
+        bin = depth_bins
+        prob = p100
+        
+        
+        
+        i = len(prob)
+        while i<len(bins_out):
+            prob.append(100)
+            i+=1
+
+                
+        
+        
+        #print n_out
+        #print depth_bins
+        
+        return sig,mu,bins_out,prob,n1,n2,n3
 
 
+ #   def create_fragility_probit_norm(self, damage_class,mu1=1,sig1=0.4, mu2=2.5,sig2=0.6, mu3=3.25,sig3=0.6, c1=100, c2=100, c3=100, weight=False):
+    def create_fragility_probit_norm(self, damage_class,s1,s2,s3,weight=False):
+  
+        '''
+        Create a probit (i.e. method used in reese) fragility function using a set of
+        normal distributed buildings
+        
+        This will be used as an example to show how the different technique work
+        
+        This will be compared against other techniques (binned and cumulative) to illustrate the differences
+        '''
+                
+        #CREATE THE DATA
+#        s1 = np.random.normal(mu1, sig1, c1).tolist()
+#        s2 = np.random.normal(mu2, sig2, c2).tolist()
+#        s3 = np.random.normal(mu3, sig3, c3).tolist()
 
-p = linspace(0, 1, 101)
-plt.plot(p, I(p,2.99,1.12))
+        depth = []
+
+        for s in s1:
+            depth.append([s,1])
+
+        for s in s2:
+            depth.append([s,2])
+            
+        for s in s3:
+            depth.append([s,3])
+                
+        depth.sort()
+
+        
+        #print damaged_bldgs
+        phiinv = []
+        histogram = []
+
+        num_bldgs = len(depth)
+        depth_class1 = []
+        i = 0
+        start = depth[0][0]
+        end = depth[0][0] + 1.0
+        count7 = 0
+        p7 = []
+        
+        
+        
+        p = []
+        depth_bins = []
+        depths_in_bin = []
+        damage_in_bin = []
+        #bin_size = 8
+        count = 0
+        count_class = 0
+        
+        binary_damage = []
+        binary_depths = []
+
+        k = 0
+        p = 0
+        while i < num_bldgs:
+            damage = depth[i][1]
+            fd = depth[i][0]
+            binary_depths.append(fd)
+            if damage >= damage_class:
+                k+=1
+                binary_damage.append(1)
+            else:
+                p+=1
+                binary_damage.append(0)
+            i+=1
+        
+        #print k,p
+        #print damage_class
+        
+        #np.ones(5)
+        #print binary_damage
+        #print binary_depths
+        #probit_model = Probit(endog=binary_damage,exog=binary_depths)
+        #probit_res = probit_model.fit()
+        #print probit_model.cdf(0)
+        #print probit_res.params[0]
+        #print probit_model.predict(probit_res.params[0],5)
+        import pysal
+        from pysal.spreg.probit import Probit
+        if weight == True:
+            #Weight the 0m depth and 0 damage part of the curve
+            #This ensures that the curve passes through 0 probability at 0m water depth
+                            
+            depths_add = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            binary_add = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+            binary_depths = depths_add+depths_add+binary_depths
+            binary_damage = binary_add+binary_add+binary_damage
+            
+        x = np.array(binary_depths, ndmin=2).T
+        y = np.array(binary_damage, ndmin=2).T
+        
+        #print binary_damage
+
+        model = Probit(y,x)
+        betas = np.around(model.betas, decimals=6)
+        #print betas
+
+        #The CDF for PROBIT
+        def cdf(x):    
+            Prob = 0.5*(1 + erf(x/sqrt(2)))
+            return Prob   
+
+        
+        b0 = betas[0][0]
+        b1 = betas[1][0]
+        
+        #plt.plot(pinv, depth_bins, 'o', label='Original data', markersize=10)
+        #x = linspace(-3,3,51)
+        x = linspace(0,5,1000)
+        
+        i=0
+        while i< len(binary_damage):
+            
+            
+            if binary_damage[i] == 0:
+                binary_damage[i] = 0.02*100
+            else:
+                binary_damage[i] = 0.98*100
+            i+=1
+        
+        return b0,b1,binary_depths,binary_damage
 
 
-"""
+#    def create_fragility_cumfreq2_norm(self, damage_class, mu1=1,sig1=0.4, mu2=2.5,sig2=0.6, mu3=3.25,sig3=0.6, c1=100, c2=100, c3=100):
+    def create_fragility_cumfreq2_norm(self, damage_class,s1,s2,s3 ):
+        
+        '''
+        Create a cumulative frequency (i.e. method used in valencia) fragility function using a set of
+        normal distributed buildings
+        
+        This will be used as an example to show how the different technique work
+        
+        This will be compared against other techniques (probit and cumulative) to illustrate the differences
+        '''
+        
+        
+        #Damage Levels and associated mu and sig distribution parameters
+#        txt1 =  "D1"
+#        mu1 = 1
+#        sig1 = 0.4 
+#        
+#        
+#        txt2 =  "D2"
+#        mu2 = 2.5
+#        sig2 = 0.6
+#        
+#        txt3 =  "D3"
+#        mu3 = 3.25
+#        sig3 = 0.6
+        
+        #CREATE THE DATA
+#        s1 = np.random.normal(mu1, sig1, c1).tolist()
+#        s2 = np.random.normal(mu2, sig2, c2).tolist()
+#        s3 = np.random.normal(mu3, sig3, c3).tolist()
+
+        depth = []
+               
+        if damage_class == 1:
+            depth = s1
+        elif damage_class == 2:
+            depth = s2
+        elif damage_class == 3:
+            depth = s3
+        else:
+            sys.exit()
+
+        depth.sort()
+        
+        #count, bins, ignored = plt.hist(depth, cumulative=True)
+        #plt.show()
+        #plt.close()
+
+ 
+        phiinv = []
+        
+        
+        num_bldgs = len(depth)
+        print "NUMBER OF BUILDINGS = %s" % num_bldgs
+        def phiinv(p):    
+            y = sqrt(2)*erfinv(2*p - 1)
+            return y
+        
+        p = []
+        p100 = []
+        depths_in_bin = []
+        n_bins = []
+        bin_avg = []
+        bin_avgLN = []
+        pinv = []
+        depth_avg = 0
+        freq = 0
+        i = 0
+        count = 0
+        
+        #according to Porter 2007 - bin size should be SQRT(num_bldgs) rounded up to the nearest integer value
+        bin_size = int(sqrt(num_bldgs))
+        print "bins size 1 = %s" % bin_size
+        print "MOD thing = %s" % np.mod(float(sqrt(float(num_bldgs))),1)
+        if np.mod(float(sqrt(float(num_bldgs))),1) > 0:
+            print "INSIDE!!!"
+            bin_size = bin_size + 1
+        
+        print "CUMFREQ_2: Bin Size = %s" % bin_size
+        while i < num_bldgs:
+            
+            count += 1
+            depths_in_bin = depth[i]
+            depth_avg = depth_avg + depth[i]
+            i+=1
+            
+            if count == bin_size: 
+                bin_avg.append(float(depth_avg)/float(bin_size))
+                bin_avgLN.append(log(float(depth_avg)/float(bin_size)))
+                freq = freq + float(bin_size)/float(num_bldgs)
+                pinv.append(phiinv(freq))
+                p100.append(freq*100)
+                p.append(freq)
+                count = 0
+                depth_avg = 0
+                
+        
+        sig,mu =  polyfit(pinv,bin_avgLN,1,full=True)[0]    
+
+
+        plt.plot(pinv, bin_avgLN, 'o', label='Original data', markersize=10)
+        x = linspace(-10,10,200)
+        plt.plot(x, sig*x + mu, 'r', label='Fitted line')
+        plt.legend()
+        plt.show()        
+        plt.close() 
+                
+        def fragilityln(x,mu,sig):    
+            """
+            Fragility with depth logged (i.e. ln(x))
+            """ 
+            Prob = 0.5*(1 + erf((log(x) - mu)/(sqrt(2)*sig)))
+            return Prob 
+        
+        return sig,mu,bin_avg,p100
+
+    #def create_fragility_cumfreq_no_bin_norm(self, damage_class, mu1=1,sig1=0.4, mu2=2.5,sig2=0.6, mu3=3.25,sig3=0.6, c1=100, c2=100, c3=100):
+        
+    def create_fragility_cumfreq_no_bin_norm(self, damage_class, s1,s2,s3):
+        '''
+        Create a cumulative frequency (i.e. method used in valencia) fragility function using a set of
+        normal distributed buildings
+        
+        This will be used as an example to show how the different technique work
+        
+        This will be compared against other techniques (probit and cumulative) to illustrate the differences
+        '''
+        
+        
+        #Damage Levels and associated mu and sig distribution parameters
+#        txt1 =  "D1"
+#        mu1 = 1
+#        sig1 = 0.4 
+#        
+#        
+#        txt2 =  "D2"
+#        mu2 = 2.5
+#        sig2 = 0.6
+#        
+#        txt3 =  "D3"
+#        mu3 = 3.25
+#        sig3 = 0.6
+        
+        #CREATE THE DATA
+#        s1 = np.random.normal(mu1, sig1, c1).tolist()
+#        s2 = np.random.normal(mu2, sig2, c2).tolist()
+#        s3 = np.random.normal(mu3, sig3, c3).tolist()
+
+        depth = []
+               
+        if damage_class == 1:
+            depth = s1
+        elif damage_class == 2:
+            depth = s2
+        elif damage_class == 3:
+            depth = s3
+        else:
+            sys.exit()
+
+        depth.sort()
+        
+        #count, bins, ignored = plt.hist(depth, cumulative=True)
+        #plt.show()
+        #plt.close()
+
+ 
+        phiinv = []
+        
+        
+        num_bldgs = len(depth)
+        print "NUMBER OF BUILDINGS = %s" % num_bldgs
+        def phiinv(p):    
+            y = sqrt(2)*erfinv(2*p - 1)
+            return y
+        
+        p = []
+        p100 = []
+        depths_in_bin = []
+        n_bins = []
+        bin_avg = []
+        bin_avgLN = []
+        pinv = []
+        depth_avg = 0
+        freq = 0
+        i = 0
+        count = 0
+        depth_ln = []
+        depth_out = []
+        
+        while i < num_bldgs:
+            
+            freq = float(i+1)/float(num_bldgs)
+            
+            if freq < 0.98 and freq > 0.02:
+                pinv.append(phiinv(freq))
+                p100.append(freq*100)
+                p.append(freq)
+                depth_out.append(depth[i])
+                depth_ln.append(log(depth[i]))
+            i+=1
+
+        
+        
+        sig,mu =  polyfit(pinv,depth_ln,1,full=True)[0]    
+        
+        
+#        print sig,mu
+#
+#        plt.plot(pinv, depth_ln, 'o', label='Original data', markersize=10)
+#        x = linspace(-10,10,200)
+#        plt.plot(x, sig*x + mu, 'r', label='Fitted line')
+#        plt.legend()
+#        plt.show()        
+#        plt.close() 
+                
+        def fragilityln(x,mu,sig):    
+            """
+            Fragility with depth logged (i.e. ln(x))
+            """ 
+            Prob = 0.5*(1 + erf((log(x) - mu)/(sqrt(2)*sig)))
+            return Prob 
+        
+        return sig,mu,depth_out,p100
 
