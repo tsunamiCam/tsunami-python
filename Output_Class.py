@@ -2614,10 +2614,48 @@ class ReadOutput:
         while i < (p1_count-1):
             prob.append(100)
             i+=1
-
-
         
-        
+#        from matplotlib import rcParams
+#        fig_width_pt = 416.9055  # Get this from LaTeX using \showthe\columnwidth
+#        inches_per_pt = 1.0/72.27               # Convert pt to inches
+#        golden_mean = (sqrt(5)-1.0)/2.0         # Aesthetic ratio
+#        fig_width = fig_width_pt*inches_per_pt  # width in inches
+#        fig_height =fig_width*golden_mean       # height in inches
+#        fig_size = [fig_width,fig_height]
+#        
+#        params1 = {
+#                  'backend': 'ps',
+#                  'font.size' : 11,
+#                  'axes.labelsize' : 11,
+#                  'font.size' : 10,
+#                  'text.fontsize' : 10,
+#                  'legend.fontsize': 10,
+#                  'xtick.labelsize' : 8,
+#                  'ytick.labelsize' : 8,
+#                  'figure.figsize': fig_size,
+#                  }
+#        
+#        rcParams.update(params1)
+#        plt.axes([0.125,0.2,0.95-0.125,0.95-0.2])
+#        
+#        plt.plot(pinv, depth_fit, 'o', label='Original data', markersize=5, color='r')
+#        
+#        x = linspace(-5,5,51)
+#        plt.plot(x, sig*x + mu, 'r', label='Fitted line')
+#        plt.xlabel(r'$\displaystyle \Phi^{-1}(P)$')
+#        plt.ylabel(r'Flood Depth (m)')
+#        plt.ylim([0,6])
+#        plt.legend(loc ="lower right")
+#        
+#        plt.annotate(r'\bf{$\displaystyle y = \mu\Phi^{-1} + \sigma$}', xy=(2, 1), xytext=(2.9, 4.6))
+# 
+#        plt.annotate(r'$\displaystyle\mu = %s$' % (round(mu,2)), xy=(2, 0.75), xytext=(2.9, 4.3)) 
+#        plt.annotate(r'$\displaystyle\sigma = %s$' % (round(sig,3)), xy=(2, 0.75), xytext=(2.9, 4.0)) 
+#
+#        plt.savefig('../SpecimenExample_BinnedFit.eps',format='eps')
+#
+#        plt.show()        
+#        plt.close()
         
         print n_out
         print depth_bins
