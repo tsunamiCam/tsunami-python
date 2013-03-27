@@ -2590,7 +2590,7 @@ class ReadOutput:
             p100.append(prob*100)
         sig,mu =  polyfit(pinv,depth_bins,1,full=True)[0]
         
-        print p
+        print p 
         print depth_bins
         
         bin = depth_bins
