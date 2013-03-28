@@ -2657,8 +2657,14 @@ class ReadOutput:
 #        plt.show()        
 #        plt.close()
         
-        print n_out
-        print depth_bins
+        print "PINV"
+        txt = ""
+        for p in pinv:
+            txt = txt +  "%s    &" % round(p,2)
+            
+        print txt
+            
+            
         return sig,mu,bin,prob,n1,n2,n3
 
 
