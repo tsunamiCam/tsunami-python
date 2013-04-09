@@ -228,6 +228,12 @@ class ReadOutput:
             if type == 9:
                 self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7  and m >= 0.5" % (t))        
    
+            #include collapsed buildings
+            if type == 10:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 7" % (t))        
+   
+   
+   
    
    
 
@@ -322,7 +328,15 @@ class ReadOutput:
                 binary_add = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
                 binary_depths = depths_add+depths_add+binary_depths
                 binary_damage = binary_add+binary_add+binary_damage
+            
+            depths_ln = []
+            for d in binary_depths:
+                depths_ln.append(log(d))
+            
                 
+            #x = np.array(depths_ln, ndmin=2).T
+
+            
             x = np.array(binary_depths, ndmin=2).T
             y = np.array(binary_damage, ndmin=2).T
             
@@ -572,7 +586,9 @@ class ReadOutput:
             if type == 9:
                 self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7  and m >= 0.5" % (t))        
 
-      
+            #include collapsed buildings
+            if type == 10:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 7" % (t))            
 
             
             damaged_bldgs = self.grid_pg.cur.fetchall()
@@ -803,9 +819,17 @@ class ReadOutput:
             for prob in p:
                 pinv.append(phiinv(prob))
                 p100.append(prob*100)
-            sig,mu =  polyfit(pinv,depth_bins,1,full=True)[0]
 
-
+            from scipy.stats import linregress 
+            #r^2 = r_value^2
+            slope, intercept, r_value, p_value, std_err = linregress(pinv,depth_bins)            
+            sig = slope
+            mu = intercept
+            r2 = r_value * r_value
+            print "mu = %s, sig = %s, r2 = %s" % (mu,sig,r2)
+            #fit =  polyfit(pinv,depth_binsln,1,full=True)
+            #sig,mu = fit[0]
+ 
             '''
 
 
@@ -932,7 +956,7 @@ class ReadOutput:
             
             
             bin = depth_bins
-            prob = p100
+            prob = p
             
             
             print bin
@@ -980,6 +1004,18 @@ class ReadOutput:
 
             if type == 9:
                 self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage = %s and m >= 0.5" % (t,damage_class))        
+
+            if type == 10:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= %s" % (t,damage_class))   
+
+            if type == 11:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage < %s and damage > 0" % (t,damage_class))   
+
+            if type == 12:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage = %s and bv >= 0.75" % (t,damage_class))   
+
+
+
 
 
             damaged_bldgs = self.grid_pg.cur.fetchall()
@@ -1066,7 +1102,7 @@ class ReadOutput:
 #            plt.show()
 #            plt.close()
 
-            return sig,mu,p100,bin_avg
+            return sig,mu,p100,bin_avg,depth
             
 
     def create_fragility_cumfreq(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8):
@@ -2365,6 +2401,16 @@ class ReadOutput:
 
         return sig,mu
     
+    #Given the fitted PROBIT LN parameters (b0 and b1), solve for mu (i.e. the standard mean)    
+    def get_mu_from_cdf_probit_ln(self,b0,b1):    
+        
+        #The standard mean of a CDF is were probability = 0.5
+        mu = (sqrt(2)*erfinv(0) - b0)/b1
+        x = 1
+        sig = (log(x) - mu) / ( sqrt(2) * erfinv(erf((b1*log(x) + b0)/sqrt(2))) )
+
+        return sig,mu
+
 #    def create_fragility_suppasri_norm(self,damage_class=2,mu1=1,sig1=0.4, mu2=2.5,sig2=0.6, mu3=3.25,sig3=0.6, c1=100, c2=100, c3=100):
     def create_fragility_suppasri_norm(self,damage_class,s1,s2,s3):
 
@@ -2763,8 +2809,31 @@ class ReadOutput:
         x = np.array(binary_depths, ndmin=2).T
         y = np.array(binary_damage, ndmin=2).T
         
-        #print binary_damage
+        pinv = []
+        depth_ln = []
+        i =0
+        for p in binary_damage:
+            if p == 0:
+                pinv.append(0.01)
+            else:
+                pinv.append(0.99)
+            
+            depth_ln.append(log(binary_depths[i]))
+            i+=1
+            
+        sig,mu =  polyfit(pinv,binary_depths,1,full=True)[0]
+        print "Least squares mu=%s, sig=%s" % (mu, sig)
 
+        plt.plot(pinv, binary_depths, 'o', label='Original data', markersize=5, color='r')
+        
+        xls = linspace(-5,5,51)
+        plt.plot(xls, sig*xls + mu, 'r', label='Fitted line')
+
+        plt.show()        
+        plt.close()
+
+
+        
         model = Probit(y,x)
         betas = np.around(model.betas, decimals=6)
         #print betas
@@ -2777,6 +2846,9 @@ class ReadOutput:
         
         b0 = betas[0][0]
         b1 = betas[1][0]
+        sig, mu = self.get_mu_from_cdf_probit(b0,b1)
+        print "Probit (max likelihood) mu=%s, sig=%s" % (mu,sig) 
+
         
         #plt.plot(pinv, depth_bins, 'o', label='Original data', markersize=10)
         #x = linspace(-3,3,51)
@@ -3019,4 +3091,675 @@ class ReadOutput:
             return Prob 
         
         return sig,mu,depth_out,p100
+    
+    
+
+
+    def create_fragility_binned_ln(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 0,where=""):
+
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+    
+           #INSERT user defined WHERE statement
+            if type == 1:           
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 7 %s" % (t, where))     
+            
+            if type == 2:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s >= %s and s <= %s;" % (t, bv_low,bv_high))        
+    
+            if type == 3:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and m >= %s and m <= %s;" % (t, bv_low,bv_high))        
+    
+    
+            if type == 4:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and f >= %s and f <= %s;" % (t, bv_low,bv_high))        
+    
+   
+            if type == 5:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7 and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t))        
+ 
+            if type == 6:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s >= 1 and m >= 1;" % (t))        
+
+            if type == 7:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s <= 0.5 and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t))        
+                
+            if type == 8:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7 and s = 1 and m >= 1 and f >= 0.75" % (t))        
+
+            if type == 9:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7  and m >= 0.5" % (t))        
+
+            #include collapsed buildings
+            if type == 10:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 7" % (t))            
+
+            #include all buildings - even those that were not surveyed
+            if type == 11:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 5" % (t))        
+   
+               
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+            
+            print "SUPPASRI: Num. of bldgs. with damage %s = %s" % (damage_class,len(damaged_bldgs))
+            
+            
+            depth = []
+            phiinv = []
+            for b in damaged_bldgs:
+                if b[1] != None and b[1] > 0:
+                    if b[2] == 0:
+                        if b[1] > 3:
+                            depth.append([b[1],7])
+                    else:
+                        depth.append([b[1],b[2]])
+                
+            depth.sort()
+            num_bldgs = len(depth)
+            depth_class1 = []
+            i = 0
+            
+            start = depth[0][0]
+            end = depth[0][0] + 1.0
+
+            p = []
+            depth_bins = []
+            depths_in_bin = []
+            damage_in_bin = []
+            #bin_size = 8
+            count = 0
+            count_class = 0
+
+            #according to Porter 2007 - bin size should be SQRT(num_bldgs) rounded up to the nearest integer value
+            
+            if bin_size == 0:
+                bin_size = int(sqrt(num_bldgs))
+                if np.mod(float(sqrt(float(num_bldgs))),1) > 0:
+                    bin_size = bin_size + 1
+                    
+            j = 0
+            start = 0
+            
+            
+
+            
+            
+            #Fill the bins with counts of [survived, destroyed] specimens
+            histogram_bins = []
+
+            print "SUPPASRI: Bin Size = %s" % bin_size
+            while i < num_bldgs:
+                damage = depth[i][1]
+                fd = depth[i][0]
+                count += 1
+                depths_in_bin.append(fd)
+                damage_in_bin.append(damage)
+                
+                if damage >= damage_class:
+                    count_class += 1
+                
+                if count == bin_size:
+                    
+                    j += 1
+
+                    prob = float(count_class)/float(count)
+                    start = i+1
+                    if prob == 0 and j == 1:
+                    #if prob == 0:
+                        average_depth_bin = 0
+                        for dep in depths_in_bin:
+                            average_depth_bin = average_depth_bin + dep    
+                        average_depth_bin = average_depth_bin/len(depths_in_bin)
+                        depth_bins.append(average_depth_bin)             
+                        #p.append(0.01)
+                        p.append(1.0/float(bin_size+1))                    
+                    elif prob == 1:
+                        prob = 0.99
+                        average_depth_bin = 0
+                        for dep in depths_in_bin:
+                            average_depth_bin = average_depth_bin + dep    
+                        average_depth_bin = average_depth_bin/len(depths_in_bin)
+                        depth_bins.append(average_depth_bin)             
+                        p.append(0.99)
+                    
+                    elif prob < 1 and prob > 0:
+                        average_depth_bin = 0
+                        for dep in depths_in_bin:
+                            average_depth_bin = average_depth_bin + dep    
+                        average_depth_bin = average_depth_bin/len(depths_in_bin)
+                        depth_bins.append(average_depth_bin)             
+                        p.append(float(count_class)/float(count))                   
+                    
+                    #[survived, destroyed]
+                    histogram_bins.append([bin_size-count_class, count_class])
+                    depths_in_bin = []
+                    damage_in_bin = []
+                    count = 0
+                    count_class = 0
+                
+                i+=1
+                
+            #Set probability for the remaining bin
+            if num_bldgs - start >= 5:
+                i = start
+                count = 0
+                count_class = 0
+                depths_in_bin = []
+                damage_in_bin = []
+                while i < num_bldgs:
+                    damage = depth[i][1]
+                    fd = depth[i][0]
+                    count += 1
+                    depths_in_bin.append(fd)
+                    damage_in_bin.append(damage)
+
+                    if damage >= damage_class:
+                        count_class += 1
+                    i+=1
+                        
+                prob = float(count_class)/float(count)
+                if prob == 0 and j == 1:
+                #if prob == 0:
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)             
+                    #p.append(0.01)
+                    p.append(1.0/float(bin_size+1))                    
+
+                                        
+                elif prob == 1:
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)             
+                    p.append(0.99)
+                
+                elif prob < 1 and prob > 0:
+                    average_depth_bin = 0
+                    for dep in depths_in_bin:
+                        average_depth_bin = average_depth_bin + dep    
+                    average_depth_bin = average_depth_bin/len(depths_in_bin)
+                    depth_bins.append(average_depth_bin)             
+                    p.append(float(count_class)/float(count))  
+                               
+                
+                histogram_bins.append([count-count_class, count_class])
+
+
+            def phiinv(p):    
+                y = sqrt(2)*erfinv(2*p - 1)
+                return y
+            
+            def fragility(x,mu,sig):    
+                Prob = 0.5*(1 + erf((x - mu)/(sqrt(2)*sig)))
+                return Prob    
+            
+            pinv = []
+            p100 = []
+            depth_binsln = []
+            for d in depth_bins:
+                depth_binsln.append(log(d))
+
+            for prob in p:
+                pinv.append(phiinv(prob))
+                p100.append(prob*100)
+                
+            
+            from scipy.stats import linregress 
+            #r^2 = r_value^2
+            
+            '''
+            if damage_class == 2:
+                i = 0
+                while i<20:
+                    pinv.pop()
+                    depth_binsln.pop()
+                    histogram_bins.pop()
+                    depth_bins.pop()
+                    p.pop()
+                    i+=1
+            '''
+            
+            slope, intercept, r_value, p_value, std_err = linregress(pinv,depth_binsln)            
+            sig = slope
+            mu = intercept
+            r2 = r_value * r_value  
+            print "mu = %s, sig = %s, r2 = %s" % (mu,sig,r2)
+            #fit =  polyfit(pinv,depth_binsln,1,full=True)
+            #sig,mu = fit[0]
+        
+        
+        
+            bin = depth_bins
+            #prob = p100
+            prob = p
+            
+            survived = []
+            destroyed = []
+            
+            for b in histogram_bins:
+                survived.append(b[0])
+                destroyed.append(b[1])
+            
+            return sig,mu,bin,prob, survived, destroyed, r2
+
+
+
+
+    def create_fragility_probit_ln(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8,weight=False,where=""):
+
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+    
+            #INSERT user defined WHERE statement
+            if type == 1:           
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 7 %s" % (t, where))     
+            
+            if type == 2:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s >= %s and s <= %s;" % (t, bv_low,bv_high))        
+    
+            if type == 3:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and m >= %s and m <= %s;" % (t, bv_low,bv_high))        
+    
+    
+            if type == 4:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and f >= %s and f <= %s;" % (t, bv_low,bv_high))        
+    
+   
+            if type == 5:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7 and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t))        
+ 
+            if type == 6:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s >= 1 and m >= 1;" % (t))        
+
+            if type == 7:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s <= 0.5 and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t))        
+
+
+            if type == 8:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7 and s = 1 and m >= 1 and f >= 0.75" % (t))        
+
+            if type == 9:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7  and m >= 0.5" % (t))        
+   
+            #include collapsed buildings
+            if type == 10:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 7" % (t))    
+   
+
+            
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+
+            
+            #print "PROBIT: Num. of bldgs with damage %s = %s" % (damage_class,len(damaged_bldgs))
+            
+            #print damaged_bldgs
+            depth = []
+            phiinv = []
+            histogram = []
+            for b in damaged_bldgs:
+                depth.append([b[1],b[2]])
+                histogram.append(b[2])  
+
+            depth.sort()
+            
+            num_bldgs = len(depth)
+            depth_class1 = []
+            i = 0
+            start = depth[0][0]
+            end = depth[0][0] + 1.0
+            count7 = 0
+            p7 = []
+            
+            
+            
+            p = []
+            depth_bins = []
+            depths_in_bin = []
+            damage_in_bin = []
+            #bin_size = 8
+            count = 0
+            count_class = 0
+            
+            binary_damage = []
+            binary_depths = []
+
+            k = 0
+            p = 0
+            while i < num_bldgs:
+                damage = depth[i][1]
+                fd = depth[i][0]
+                binary_depths.append(fd)
+                if damage >= damage_class:
+                    k+=1
+                    binary_damage.append(1)
+                else:
+                    p+=1
+                    binary_damage.append(0)
+                i+=1
+            
+            import pysal
+            from pysal.spreg.probit import Probit
+            if weight == True:
+                #Weight the 0m depth and 0 damage part of the curve
+                #This ensures that the curve passes through 0 probability at 0m water depth
+                                
+                depths_add = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+                binary_add = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+                binary_depths = depths_add+depths_add+binary_depths
+                binary_damage = binary_add+binary_add+binary_damage
+            
+            depths_ln = []
+            for d in binary_depths:
+                depths_ln.append(log(d))
+            
+
+            #x = np.array(binary_depths, ndmin=2).T
+                
+            x = np.array(depths_ln, ndmin=2).T
+            y = np.array(binary_damage, ndmin=2).T
+            
+            model = Probit(y,x)
+            betas = np.around(model.betas, decimals=6)
+            b0 = betas[0][0]
+            b1 = betas[1][0]
+            
+            i=0
+            
+            damage_class_count = 0
+            while i< len(binary_damage):
+                
+                
+                if binary_damage[i] == 0:
+                    damage_class_count+=1
+                    binary_damage[i] = 0.02*1
+                else:
+                    binary_damage[i] = 0.98*1
+                i+=1
+            
+            return b0,b1,binary_depths,binary_damage
+
+
+
+    #The CDF for PROBIT
+    def cdf_probit_ln(self,x,b0,b1):    
+        
+        x = b1*log(x) + b0
+        Prob = 0.5*(1 + erf(x/sqrt(2)))
+        return Prob   
+
+
+
+
+    def create_fragility_binned_ln_interval(self,damage_class, bv_low = -1, bv_high = 1,damage_low = 1, type=1,bin_size = 8, interval=0.5, where =""):
+
+        '''
+        Constant interval binned fragility function
+        '''
+        from numpy import histogram
+
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+    
+            #INSERT user defined WHERE statement
+            if type == 1:           
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 7 %s" % (t, where))     
+            
+              
+            if type == 2:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s >= %s and s <= %s;" % (t, bv_low,bv_high))        
+    
+            if type == 3:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and m >= %s and m <= %s;" % (t, bv_low,bv_high))        
+    
+    
+            if type == 4:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and f >= %s and f <= %s;" % (t, bv_low,bv_high))        
+    
+   
+            if type == 5:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7 and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t))        
+ 
+            if type == 6:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s >= 1 and m >= 1;" % (t))        
+
+            if type == 7:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and s <= 0.5 and m <= 1 and m >= 0.75 and f <= 0.25 and s <= 0.75;" % (t))        
+
+
+            if type == 8:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7 and s = 1 and m >= 1 and f >= 0.75" % (t))        
+
+            if type == 9:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage < 7  and m >= 0.5" % (t))        
+
+            #include collapsed buildings
+            if type == 10:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 7" % (t))            
+
+            #include collapsed buildings only wood
+            if type == 11:
+                self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage >= 1 and damage <= 7 and m >= 1" % (t))   
+            
+            damaged_bldgs = self.grid_pg.cur.fetchall()
+            
+            print "SUPPASRI: Num. of bldgs. with damage %s = %s" % (damage_class,len(damaged_bldgs))
+            
+            
+            depth = []
+            phiinv = []
+            for b in damaged_bldgs:
+                depth.append([b[1],b[2]])
+            
+            
+            depth.sort()
+    
+            num_bldgs = len(depth)
+            depth_class1 = []
+
+
+            p = []
+            depth_bins = []
+            depths_in_bin = []
+            damage_in_bin = []
+            #bin_size = 8
+            count = 0
+            count_class = 0
+
+            #according to Porter 2007 - bin size should be SQRT(num_bldgs) rounded up to the nearest integer value
+            bin_size = int(sqrt(num_bldgs))
+            if np.mod(float(sqrt(float(num_bldgs))),1) > 0:
+                bin_size = bin_size + 1
+            j = 0
+            
+            bin_edges = [0,0.5,1.0,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10]
+            bin_edges = []
+            edge = 0
+            last = 10
+            while edge <= 10:
+                bin_edges.append(edge)
+                edge = edge + interval
+                
+            
+            
+            i = 0   #bin count
+            j = 0   #specimen count
+            n = 0   #bin's appended
+            count_class = 0
+            looping = True
+            increasing = False
+            decreasing = False
+            while i < len(bin_edges)-1:
+                
+                count_class = 0
+                count = 0
+                start = bin_edges[i]
+                end = bin_edges[i+1]
+                looping = True
+                while looping == True:                    #print depth
+                    fd = depth[j][0]
+                    damage = depth[j][1]
+                    if fd >= start and fd < end:
+                        depths_in_bin.append(fd)
+                        damage_in_bin.append(damage)
+                        if damage >= damage_class:
+                            count_class += 1
+                        
+                        if j < len(depth)-1:
+                            j+=1
+                        else:
+                            looping = False
+                    
+                    else:
+                        looping = False
+               
+
+                count = len(depths_in_bin)
+                if count > 0:
+                    prob = float(count_class)/float(count)
+                
+
+                    if prob == 0 and increasing == True:
+                        depth_bins.append((float(start)+float(end))/2.0)  
+                        p.append(0.01)
+                                
+                    elif prob == 1:
+                        increasing == True
+                        depth_bins.append((float(start)+float(end))/2.0)  
+                        p.append(0.99)
+                    
+                    elif prob < 1 and prob > 0:
+                        increasing == True
+                        depth_bins.append((float(start)+float(end))/2.0)  
+                        p.append(prob)  
+                    
+                    if increasing == True:
+                        if i > 0:
+                            last = p[n-1]
+                            current = p[n]
+                            #print current
+        
+                            if last > 0.01 and current == 0.01:
+                                p.pop()
+                                depth_bins.pop()                        
+                                i=1000
+                    
+                        n+=1
+     
+                    
+                else:
+                    prob = 0
+
+                depths_in_bin = []
+                damage_in_bin = []
+                i+=1
+
+
+            def phiinv(p):    
+                y = sqrt(2)*erfinv(2*p - 1)
+                return y
+            
+            def fragility(x,mu,sig):    
+                Prob = 0.5*(1 + erf((x - mu)/(sqrt(2)*sig)))
+                return Prob    
+            
+            
+            
+            pinv = []
+            p100 = []
+            depth_binsln = []
+            for d in depth_bins:
+                depth_binsln.append(log(d))
+
+            for prob in p:
+                pinv.append(phiinv(prob))
+                p100.append(prob*100)
+                
+                
+                
+                
+            #sig,mu =  polyfit(pinv,depth_binsln,1,full=True)[0]
+  
+
+            from scipy.stats import linregress 
+            slope, intercept, r_value, p_value, std_err = linregress(pinv,depth_binsln)            
+            sig = slope
+            mu = intercept
+            r2 = r_value * r_value  
+            print "mu = %s, sig = %s, r2 = %s" % (mu,sig,r2)
+            
+
+            bin = depth_bins
+            prob = p
+            
+            
+            #print bin
+            #print prob
+            #print sig, mu
+            return sig,mu,bin,prob,r2   
+
+
+
+    def get_attribute_distribution(self,attribute=""):
+        '''    
+        Given an attribute (m,s,pc,f,etc.) returns the distribution of the the different permutations (i.e. specimen count for each permuation)
+        
+        
+        Function searches the PostGIS buildings database for the active run
+        
+        
+        '''
+        if self.output_tablename == "":
+            print "Please add output data to the buildings table for this run..."
+            return
+        else:
+            
+            t = self.output_tablename
+            
+            count_return = []
+            if attribute == "":
+                print "No attribute given. Please select a valid attribute..."
+                return
+            else:
+                indices = [-1,-0.5,0,0.25,0.5,0.75,1]
+                damage = [1,2,3,4,5,6,7]
+                total = 0
+                for i in indices:
+                    count_damage = []
+                    count_state = 0
+                    for d in damage:
+                        self.grid_pg.cur.execute("SELECT id,fdmax_nodes,damage FROM %s WHERE damage = %s and %s = %s" % (t, d,attribute,i))   
+                        query = self.grid_pg.cur.fetchall()
+                        count_damage.append(len(query))
+                        total = total + len(query)
+                        count_state = count_state + len(query)
+                    
+                    count_damage.insert(0,count_state)        #Add total to end of count for the state
+                    count_return.append(count_damage)
+        print "Distribution of %s = %s" % (attribute, count_return)
+        print "TOTAL = %s" % total
+        return count_return, total
+                    
+            
+                    
+
+                     
+            
+            
+   
 
