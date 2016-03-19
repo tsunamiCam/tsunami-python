@@ -618,6 +618,9 @@ class GridNC:
             for step in time:
                 fd_max = 0
                 speed_max = 0
+                eta_max = 0
+                z_fd_max = 0
+                z_eta_max = 0
                 for node in nodes:          #For current footprint: get the max node data for the time step
                     if node != 0:
                         #eta = self.output_nodes.variables['eta'][dict_ids['nodes'][node]][i_time]
@@ -628,19 +631,26 @@ class GridNC:
                         if eta - xyz[node-1][2] < 0.01: fd = 0
                         else: fd = eta - xyz[node-1][2] 
                         
-                        if fd > fd_max: fd_max = fd
+                        if fd > fd_max: 
+                            fd_max = fd
+                            z_fd_max = xyz[node-1][2]
+                        if eta > eta_max:
+                            eta_max = fd
+                            z_eta_max = xyz[node-1][2]     
                         if speed > speed_max: speed_max = speed
     
                     else: break
         
                 i_time += 1
-                maxData.append([step, fd_max, speed_max])
+                maxData.append([step, fd_max, speed_max, eta_max])
 
             i_footprint += 1
             maxData = array(maxData)
             fd_absMax = maxData[:,1].max()
             speed_absMax = maxData[:,2].max()
-            footprints_max[id] = {'time_series': maxData, 'fd_max': fd_absMax, 'speed_max': speed_absMax }
+            eta_absMax = maxData[:,3].max()
+
+            footprints_max[id] = {'time_series': maxData, 'fd_max': fd_absMax, 'speed_max': speed_absMax, 'eta_max': eta_absMax}
             
 #            print "id = %s, fd_max = %s, speed_max = %s\n" % (str(id), str(footprints_max[id]['fd_max']), str(footprints_max[id]['speed_max']))
         return footprints_max
@@ -1052,12 +1062,10 @@ class GridPG:
         '''
         self.cur.execute("DROP TABLE IF EXISTS buildings;")
     
-    def add_building_results_table(self,new_tablename):
+    def add_building_results_table(self,new_tablename,buildings_tablename="buildings"):
         """
         Make a copy of the base buildings table to which results of a model run are added to.
         """
-        
-
         #BV constants
         bv_w1 = 0.236   #stories
         bv_w2 = 0.189   #material
@@ -1096,10 +1104,8 @@ class GridPG:
                                                                     new_tablename,new_tablename,new_tablename)) 
          
         
-
         self.cur.execute("ALTER TABLE %s ADD COLUMN etamax_nodes float;" % new_tablename)
         self.cur.execute("ALTER TABLE %s ADD COLUMN fdmax_avg_nodes float;" % new_tablename)
-
         self.cur.execute("ALTER TABLE %s ADD COLUMN fdmax_nodes float;" % new_tablename)
         self.cur.execute("ALTER TABLE %s ADD COLUMN speedmax_nodes float;" % new_tablename)        
         self.cur.execute("ALTER TABLE %s ADD COLUMN exposure float;" % new_tablename)
@@ -1108,7 +1114,7 @@ class GridPG:
 
         self.conn.commit()
     
-        self.cur.execute("SELECT id,geom FROM buildings;") 
+        self.cur.execute("SELECT id,ST_Transform(geom,%s) FROM %s;" % (self.epsg, buildings_tablename)) 
         buildings = self.cur.fetchall() 
         
          
